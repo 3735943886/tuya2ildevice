@@ -1,4 +1,5 @@
 import json
+import os
 import pathlib
 
 import pytest
@@ -7,7 +8,8 @@ from helpers import curtain, fn, light, strat
 from tuya2ildevice import (Absent, Command, Connected, Disconnected, Event, Message, Reject, SendMessage, TuyaDriver,
                            Value, check_command, Rejected)
 
-SPEC = pathlib.Path(__file__).parent / "spec"      # copied from the ildevice repo (schema/, vectors/)
+ILDEVICE = pathlib.Path(os.environ.get("ILDEVICE", pathlib.Path(__file__).resolve().parents[2] / "ildevice"))   # the spec repo
+needs_spec = pytest.mark.skipif(not ILDEVICE.is_dir(), reason=f"no ildevice checkout at {ILDEVICE} (set ILDEVICE)")
 
 
 def test_light_realtime_and_commands():
@@ -83,9 +85,10 @@ def test_event_fires_on_active_only():
 
 
 # --- il.md section 5 vectors ------------------------------------------------------------------
-VECTORS = SPEC / "commands.json"
+VECTORS = ILDEVICE / "vectors" / "commands.json"
 
 
+@needs_spec
 def test_il_command_vectors():
     v = json.loads(VECTORS.read_text())
     for c in v["cases"]:
@@ -97,9 +100,10 @@ def test_il_command_vectors():
 
 
 # --- descriptors of the real devices validate against the IL schema ------------------------------
-SCHEMA = SPEC / "descriptor.schema.json"
+SCHEMA = ILDEVICE / "schema" / "descriptor.schema.json"
 
 
+@needs_spec
 def test_every_core_fixture_yields_a_valid_descriptor():
     """All 324 Home Assistant core tuya fixtures: descriptor validates, and carries no secret (D-3)."""
     import fixtures

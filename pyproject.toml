@@ -13,7 +13,7 @@ readme = "README.md"
 classifiers = ["Programming Language :: Python :: 3", "Topic :: Home Automation"]
 
 [project.optional-dependencies]
-test = ["pytest", "jsonschema"]
+test = ["pytest", "pytest-asyncio", "jsonschema", "paho-mqtt>=2.0"]
 host = ["paho-mqtt>=2.0"]
 
 [tool.hatch.build.targets.wheel]
@@ -23,5 +23,6 @@ packages = ["src/tuya2ildevice"]
 include = ["src", "tests", "examples", "scripts", "docs", "README.md", "LICENSE", "pyproject.toml"]
 
 [tool.pytest.ini_options]
+asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["src"]

@@ -6,7 +6,7 @@ events from dps packets, and dps for ildevice commands. It opens no sockets and 
 (rustuya-homeassistant, il-ha hosts, rustuya-manager) import this instead of carrying their own Tuya knowledge.
 
 ```
-pip install .              # no dependencies;  .[host] adds paho-mqtt for examples/host.py,  .[test] for the tests
+pip install .              # no dependencies;  .[host] adds paho-mqtt for `tuya2ildevice.host`,  .[test] for the tests
 ```
 
 ```python
@@ -78,7 +78,10 @@ host's job; the code runs in-process.
 
 `Hub` ([mqtt.py](src/tuya2ildevice/mqtt.py)) owns one driver per device and maps both sides. Its methods take what was
 received and return `Publish(side, topic, payload, retain, qos)`; the host only executes them.
-[examples/host.py](examples/host.py) is the ~60 line paho host.
+`tuya2ildevice.host` is the host: `Runner` drives a `Hub` on two transports (`MqttTransport` over paho, or the in-process
+`InProcessTransport`), keeps the Last Will presence (M-12), reconnects, adds/removes devices while running
+(`set_device`, `remove_device`, `sync_devices`) and follows rustuya-manager's `tuyadevices.json` (`DeviceWatcher`).
+`read_bridge_config` + `BridgeTopics.from_config` take the topic layout the bridge announces on `{root}/bridge/config`.
 
 | direction | topic |
 |---|---|
@@ -117,3 +120,9 @@ pip install -e .[test] && python -m pytest
 
 `tests/test_adapter.py` compares the raw-dps adapter with the Tuya SDK and is skipped unless `tuya-device-sharing-sdk==0.2.15`
 is installed. `tests/spec/` is a copy of ildevice's `schema/` and `vectors/`; refresh it when the spec changes.
+
+## Tests
+
+`pytest`. The spec repository (`../ildevice`, or `$ILDEVICE`) supplies the schema and the language-neutral vectors
+(commands, wire values, topics); those tests are skipped if it is not there. `tests/chain/` compares every Home Assistant
+core tuya fixture with core's entity snapshots through il-ha's HA-free planner (needs `il-ha`; not collected without it).

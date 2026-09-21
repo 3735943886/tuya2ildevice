@@ -69,6 +69,13 @@ class BridgeTopics:
         self._event_re = self._regex(self.event, {"type": r"(?P<type>active|passive|state)"})
         self._error_re = self._regex(self.message.replace("{level}", "error"), {})
 
+    @classmethod
+    def from_config(cls, config: dict, root: str = "rustuya") -> "BridgeTopics":
+        """The layout a running bridge announces (its retained ``{root}/bridge/config``: ``mqtt_root_topic``,
+        ``mqtt_event_topic``, ``mqtt_message_topic``, ``mqtt_command_topic``). What the bridge says wins over `root`."""
+        return cls(config.get("mqtt_root_topic") or root, event=config.get("mqtt_event_topic"),
+                   message=config.get("mqtt_message_topic"), command=config.get("mqtt_command_topic"))
+
     @staticmethod
     def _regex(template: str, special: dict[str, str]) -> re.Pattern:
         out, pos = "", 0
@@ -145,6 +152,8 @@ def encode_value(value: Any) -> str:
     """il-mqtt.md section 3: no JSON quoting of strings."""
     if isinstance(value, bool):
         return "true" if value else "false"
+    if isinstance(value, float) and value.is_integer() and abs(value) < 1e15:
+        value = int(value)                                    # an integral value has no fraction
     if isinstance(value, (int, float)):
         return json.dumps(value)
     return str(value)
