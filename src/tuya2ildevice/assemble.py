@@ -5,7 +5,7 @@ Each plan becomes one or more IL properties; a `Binding` says how to read the pr
 dp-code state and how to turn a written value into `[{code, value}]` commands. Composites (light, cover, fan, siren,
 valve, humidifier, climate) get IL roles; the first one is the device's `kind`, later ones become kinded groups (il.md section 10).
 
-Not assembled (listed in `Assembly.unsupported`): alarm_control_panel, vacuum, camera.
+Not assembled (listed in `Assembly.unsupported`): camera (a stream is outside the IL).
 """
 from __future__ import annotations
 
@@ -15,11 +15,12 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from .tuya import ops
-from .tuya.platforms import COVER_FEATURES
+from .tuya.platforms import COVER_FEATURES, VAC_FEATURES
 from .tuya.runtime import EntityPlan, StateSlot
 
 IL_VERSION = 0
-UNSUPPORTED = {"alarm_control_panel", "vacuum", "camera"}
+UNSUPPORTED = {"camera"}
+KINDS = {"alarm_control_panel": "alarm"}                          # engine platform -> IL kind, where they differ
 HAZARDOUS_COVERS = {"garage", "gate", "door", "damper"}          # il.md S-1: motion of a hazardous device
 BUTTON_CLASSES = {"restart", "identify", "update"}
 
@@ -103,12 +104,15 @@ class _Builder:
 
     def composite(self, plan: EntityPlan) -> tuple[str, dict]:
         """(name prefix, extra prop fields) for a composite: the first is the device's kind, later ones are groups."""
+        kind, ident = KINDS.get(plan.platform, plan.platform), plan.identity
+        cat = {"category": ident["entity_category"]} if ident.get("entity_category") in ("config", "diagnostic") else {}
         if self.kind is None:
-            self.kind = plan.platform
-            return "", {}
+            self.kind = kind
+            self.klass = ident.get("device_class")
+            return "", cat
         g = self.name(plan.key)
-        self.groups[g] = {"kind": plan.platform}
-        return g + "_", {"group": g}
+        self.groups[g] = {"kind": kind, **({"class": ident["device_class"]} if ident.get("device_class") else {})}
+        return g + "_", {"group": g, **cat}
 
 
 def _simple(b: _Builder, plan: EntityPlan) -> None:
@@ -186,8 +190,6 @@ def _light(b: _Builder, plan: EntityPlan) -> None:
 
 def _cover(b: _Builder, plan: EntityPlan) -> None:
     hazardous = plan.identity.get("device_class") in HAZARDOUS_COVERS and not b.allow_hazardous
-    if b.kind is None:
-        b.klass = plan.identity.get("device_class")
     pre, g = b.composite(plan)
     feats, r = plan.identity["supported_features"], plan.roles
     if "set_position" in r or "current_position" in r:
@@ -209,6 +211,37 @@ def _cover(b: _Builder, plan: EntityPlan) -> None:
                       write=lambda v, s, svc=svc: plan.write(svc, {}, s))
 
 
+def _alarm(b: _Builder, plan: EntityPlan) -> None:
+    pre, g = b.composite(plan)
+    rng = plan.roles["master_mode"].spec.range
+    b.add(pre + "alarm_state", {"type": "select", "role": "alarm_state",
+                                "options": ["disarmed", "armed_home", "armed_away", "triggered"], **g}, plan,
+          read=_view(plan, "alarm_state"))
+    for act, raw in (("arm_home", "home"), ("arm_away", "arm"), ("disarm", "disarmed")):
+        if raw not in rng or (act == "disarm" and not b.allow_hazardous):      # S-1: disarm stays out unless allowed
+            continue
+        b.add(pre + act, {"type": "trigger", "role": act, **g}, plan,
+              write=lambda v, s, act=act: plan.write(act, {}, s))
+
+
+def _vacuum(b: _Builder, plan: EntityPlan) -> None:
+    pre, g = b.composite(plan)
+    feats = plan.identity["supported_features"]
+    b.add(pre + "vacuum_state", {"type": "select", "role": "vacuum_state",
+                                 "options": ["cleaning", "docked", "paused", "returning", "idle", "error"], **g}, plan,
+          read=_view(plan, "activity"))
+    for name, role, feat, act in (("start", "start", "START", "start"), ("pause", "pause", "PAUSE", "pause"),
+                                  ("return_home", "return_home", "RETURN_HOME", "return_to_base"),
+                                  ("locate", "locate", "LOCATE", "locate"), ("stop", None, "STOP", "stop")):
+        if feats & VAC_FEATURES[feat]:
+            b.add(pre + name, {"type": "trigger", **({"role": role} if role else {}), **g}, plan,
+                  write=lambda v, s, act=act: plan.write(act, {}, s))
+    if plan.identity["fan_speed_list"]:
+        b.add(pre + "fan_speed", {"type": "select", "rw": True, "role": "fan_speed",
+                                  "options": list(plan.identity["fan_speed_list"]), **g}, plan,
+              read=_view(plan, "fan_speed"), write=lambda v, s: plan.write("set_fan_speed", {"fan_speed": v}, s))
+
+
 def _fan(b: _Builder, plan: EntityPlan) -> None:
     pre, g = b.composite(plan)
     r = plan.roles
@@ -216,17 +249,17 @@ def _fan(b: _Builder, plan: EntityPlan) -> None:
         b.add(plan.key, {"type": "binary", "rw": True, "role": "on", **g}, plan, read=_view(plan, "is_on"),
               write=lambda v, s: plan.write("turn_on" if v else "turn_off", {}, s))
     if "speed" in r:
-        b.add(pre + "speed", {"type": "number", "rw": True, "unit": "%", "min": 1, "max": 100, "step": 1, **g}, plan,
+        b.add(pre + "speed", {"type": "number", "rw": True, "role": "speed", "unit": "%", "min": 1, "max": 100, "step": 1, **g}, plan,
               read=_view(plan, "percentage"), write=lambda v, s: plan.write("set_percentage", {"percentage": v}, s))
     if "mode" in r:
         b.add(pre + "mode", {"type": "select", "rw": True, "role": "mode", "options": list(r["mode"].spec.range),
                              **g}, plan, read=_view(plan, "preset_mode"),
               write=lambda v, s: plan.write("set_preset_mode", {"preset_mode": v}, s))
     if "oscillate" in r:
-        b.add(pre + "oscillate", {"type": "binary", "rw": True, **g}, plan, read=_view(plan, "oscillating"),
+        b.add(pre + "oscillate", {"type": "binary", "rw": True, "role": "oscillate", **g}, plan, read=_view(plan, "oscillating"),
               write=lambda v, s: plan.write("oscillate", {"oscillating": v}, s))
     if "direction" in r:
-        b.add(pre + "direction", {"type": "select", "rw": True, "options": ["forward", "reverse"], **g}, plan,
+        b.add(pre + "direction", {"type": "select", "rw": True, "role": "direction", "options": ["forward", "reverse"], **g}, plan,
               read=_view(plan, "direction"), write=lambda v, s: plan.write("set_direction", {"direction": v}, s))
 
 
@@ -244,8 +277,6 @@ def _valve(b: _Builder, plan: EntityPlan) -> None:
 
 
 def _humidifier(b: _Builder, plan: EntityPlan) -> None:
-    if b.kind is None:
-        b.klass = plan.identity.get("device_class")
     pre, g = b.composite(plan)
     i, r = plan.identity, plan.roles
     if "switch" in r:
@@ -328,7 +359,8 @@ def _climate(b: _Builder, plan: EntityPlan) -> None:
               read=lambda st, slot, code=code: ops.validate_bool_read(st.get(code)), write=swing_write)
 
 
-_COMPOSITE = {"humidifier": _humidifier, "climate": _climate, "light": _light, "cover": _cover, "fan": _fan, "siren": _siren, "valve": _valve}
+_COMPOSITE = {"humidifier": _humidifier, "climate": _climate, "light": _light, "cover": _cover, "fan": _fan, "siren": _siren, "valve": _valve,
+              "alarm_control_panel": _alarm, "vacuum": _vacuum}
 
 
 def assemble(schema, plans: list[EntityPlan], device_info: dict[str, Any], *, allow_hazardous: bool = False) -> Assembly:

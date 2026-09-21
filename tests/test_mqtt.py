@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from helpers import curtain, light
 from tuya2ildevice import BridgeTopics, Hub, Publish
 
@@ -87,3 +89,33 @@ def test_timers_surface_as_schedule_and_on_timer():
     assert hub.on_timer(3, "cur1", "c0:settle") == [Publish("il", "il/cur1/motion", "stopped", True, 1)]
     hub.on_bridge(4, "rustuya/event/active/cur1", '{"1":"open"}')
     assert Unschedule("cur1", "c0:settle") in hub.on_bridge(5, "rustuya/error/cur1", '{"errorCode":914}')
+
+
+def test_set_device_adds_replaces_and_remove_clears_first():
+    hub = Hub([light()])
+    hub.start()
+    cid = curtain()["id"]
+    added = topics(hub.set_device(curtain()))                      # runtime add: descriptor out, retained
+    assert added[f"il/{cid}"].retain and json.loads(added[f"il/{cid}"].payload)["kind"] == "cover"
+    assert cid in hub.drivers
+
+    # replacing a known device that lost a property clears that property before the new descriptor (M-11)
+    small = light()
+    del small["function"]["temp_value_v2"]                         # function and status_range are one dict in helpers.light
+    small["local_strategy"].pop("23")
+    out = hub.set_device(small)
+    order = [p.topic for p in out]
+    assert order == ["il/lamp1/color_temperature", "il/lamp1", "il/lamp1/available"]
+    assert out[0].payload == "" and out[0].retain
+
+    # removal: every retained value cleared, then the descriptor last, and the device is gone
+    out = hub.remove_device("lamp1")
+    assert out[-1].topic == "il/lamp1" and out[-1].payload == "" and out[-1].retain
+    assert all(p.payload == "" and p.retain for p in out) and len(out) > 2
+    assert hub.on_bridge(2, "rustuya/event/state/lamp1", '{"20":true}', True) == [] and hub.remove_device("lamp1") == []
+
+    bad = light()
+    bad["id"] = "_x"
+    with pytest.raises(ValueError):
+        hub.set_device(bad)
+    assert "_x" not in hub.drivers

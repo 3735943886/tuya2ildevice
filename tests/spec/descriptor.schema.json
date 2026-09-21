@@ -404,6 +404,63 @@
           "if": {
             "properties": {
               "role": {
+                "const": "speed"
+              }
+            },
+            "required": [
+              "role"
+            ]
+          },
+          "then": {
+            "properties": {
+              "type": {
+                "const": "number"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "role": {
+                "const": "oscillate"
+              }
+            },
+            "required": [
+              "role"
+            ]
+          },
+          "then": {
+            "properties": {
+              "type": {
+                "const": "binary"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "role": {
+                "const": "direction"
+              }
+            },
+            "required": [
+              "role"
+            ]
+          },
+          "then": {
+            "properties": {
+              "type": {
+                "const": "select"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "role": {
                 "const": "target_humidity"
               }
             },

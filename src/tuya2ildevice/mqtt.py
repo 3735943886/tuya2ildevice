@@ -175,8 +175,48 @@ class Hub:
         self._kw = driver_kwargs
         self.drivers = {i: TuyaDriver(d, **driver_kwargs) for i, d in self._devices.items()}
         for i in self.drivers:
-            if not i or i[0] == "_" or any(c in i for c in "/+#\0"):
-                raise ValueError(f"device id {i!r} is not usable as an il-mqtt topic level (M-2)")
+            self._check_id(i)
+
+    @property
+    def records(self) -> dict[str, dict]:
+        """The device records the Hub drives now, by id (a copy of the mapping; the records are shared)."""
+        return dict(self._devices)
+
+    def _check_id(self, i: str) -> None:
+        if not i or i[0] == "_" or any(c in i for c in "/+#\0"):
+            raise ValueError(f"device id {i!r} is not usable as an il-mqtt topic level (M-2)")
+
+    def set_device(self, device: dict) -> list:
+        """Add a device, or replace the record of one that is known (a new schema, a new local key): the descriptor
+        is published (properties it no longer has are cleared first, M-11) and, if the bridge link was up, the state is
+        asked for again. Raises before changing anything if the record cannot be driven."""
+        i = device["id"]
+        self._check_id(i)
+        new = TuyaDriver(device, **self._kw)
+        old = self.drivers.get(i)
+        pubs: list = []
+        if old is not None:
+            pubs += [Unschedule(i, n) for n in sorted(old.timers)]
+            for prop in old.descriptor["props"].keys() - new.descriptor["props"].keys():
+                pubs.append(Publish(IL, self.il.state(i, prop), "", True, 1))
+        pubs += self._il_pubs(i, new.describe())
+        if old is not None and old.linked:
+            new.handle(0, Connected())
+            pubs.append(self.bridge.get(i))
+        self._devices[i] = device
+        self.drivers[i] = new
+        return pubs
+
+    def remove_device(self, device_id: str) -> list:
+        """M-11: clear every retained value, then the descriptor (`remove`). Unknown ids do nothing."""
+        old = self.drivers.pop(device_id, None)
+        self._devices.pop(device_id, None)
+        if old is None:
+            return []
+        pubs: list = [Unschedule(device_id, n) for n in sorted(old.timers)]
+        pubs += [Publish(IL, self.il.state(device_id, prop), "", True, 1) for prop in old.descriptor["props"]]
+        pubs.append(Publish(IL, self.il.descriptor(device_id), "", True, 1))
+        return pubs
 
     def reload(self, overrides: dict | None, converters: dict | None = None) -> list:
         """Apply new user overrides (see overrides.py). A device whose descriptor changed gets a fresh driver: its

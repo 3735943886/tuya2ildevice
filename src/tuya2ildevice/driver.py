@@ -68,12 +68,12 @@ class TuyaDriver:
     """`device`: id, category, product_id, name, function, status_range, local_strategy, status (Tuya cloud record).
     `dpmap`: extra ``{dp id: code}`` for a device that has no `local_strategy`.
     `overrides`: user overrides (see `overrides.py`), a ``{product_id or device id: block}`` mapping.
-    `expose_unused`: give every dp no platform table claimed a property of its own (as rustuya-homeassistant v1 did).
+    `expose_unused`: give every dp no platform table claimed a property of its own (as rustuya-homeassistant v1 did); off by default, which is what Home Assistant core's tuya integration does.
     `allow_hazardous`: also offer writes for a garage door or gate cover (il.md S-1); off by default."""
 
     def __init__(self, device: dict, *, env: HostEnv | None = None, use_quirks: bool = True,
                  dpmap: dict[str, str] | None = None, allow_hazardous: bool = False,
-                 expose_unused: bool = True, overrides: dict | None = None,
+                 expose_unused: bool = False, overrides: dict | None = None,
                  converters: dict | None = None):
         schema = schema_of(device)
         quirk = quirk_for(schema.product_id) if use_quirks else None

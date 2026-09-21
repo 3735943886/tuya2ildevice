@@ -27,11 +27,11 @@ d.handle(now, Command("switch_1", "off"))    # -> [SendMessage("set", {"dps": {"
   Values convert as in Home Assistant core (brightness goes through 0..255; cover position is reversed unless
   `control_back_mode` is `back`), so a written value can differ slightly from what is read back.
 - Covers of class garage/gate are read only unless `TuyaDriver(..., allow_hazardous=True)` (il.md S-1).
-- Every dp no platform table claims still gets a property, chosen by its Tuya type (rustuya-homeassistant v1 did the
-  same); `TuyaDriver(..., expose_unused=False)` turns that off. Integer, Enum and Boolean are writable only if the dp is
+- A dp no platform table claims gets no property, as in Home Assistant core; `TuyaDriver(..., expose_unused=True)` gives
+  each one a property chosen by its Tuya type (rustuya-homeassistant v1 did that). Integer, Enum and Boolean are writable only if the dp is
   in `function`; String, Raw, Json and Bitmap are read-only. `config` if writable, else `diagnostic`.
 - Assembled: switch, button, select, number, sensor, binary_sensor, event, light, cover, fan, siren, valve,
-  humidifier, climate. Not yet: alarm_control_panel, vacuum, camera (`driver.unsupported` lists them).
+  humidifier, climate, alarm (kind `alarm`), vacuum. Not assembled: camera (a stream is outside the IL; `driver.unsupported` lists it).
   A doorbell `alarm_message` event loses its message text (an ildevice event has only a kind).
 
 ## User overrides

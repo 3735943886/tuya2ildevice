@@ -118,7 +118,8 @@ def test_unused_dps_get_properties_like_v1():
     dev = {"id": "x", "category": "zz", "product_id": "p", "name": "X", "function": f, "status_range": sr, "status": {},
            "local_strategy": strat({"1": ("switch_1", "Boolean"), "7": ("countdown_1", "Integer"), "9": ("mystery", "Enum"),
                                     "10": ("cycle_time", "String"), "11": ("fault", "Bitmap"), "12": ("temp_x", "Integer")})}
-    d = TuyaDriver(dev)
+    assert "mystery" not in TuyaDriver(dev).descriptor["props"]           # off by default: core creates no entity for it
+    d = TuyaDriver(dev, expose_unused=True)
     p = d.descriptor["props"]
     assert p["mystery"] == {"type": "select", "rw": True, "options": ["a", "b"], "label": "Mystery", "category": "config", "src": "mystery"}
     assert p["countdown_1"]["step"] == 1 and isinstance(p["countdown_1"]["step"], int) and p["countdown_1"]["unit"] == "s"
@@ -130,8 +131,7 @@ def test_unused_dps_get_properties_like_v1():
     assert vals["mystery"] == "b" and vals["temp_x"] == 5.5 and vals["fault"] == 2 and vals["cycle_time"] == "abc"
     assert d.handle(2, Command("mystery", "a"))[0].json == {"dps": {"9": "a"}}
     assert d.handle(3, Command("temp_x", 1))[0].code == "read_only"
-    assert "temp_x" not in TuyaDriver(dev, expose_unused=False).descriptor["props"]
-
+    
 
 # --- user overrides ----------------------------------------------------------------------------
 from tuya2ildevice import OverrideError, from_v1, merge_all   # noqa: E402
@@ -148,7 +148,7 @@ def test_override_props_device_and_precedence():
     ovr = {"prod1": {"props": {"countdown_1": {"label": "Timer", "category": None, "unit": "min"}, "cycle_time": {"hide": True}},
                      "device": {"model": "X1"}},
            "d1": {"props": {"switch_1": {"rw": False, "class": "switch"}}}}
-    d = TuyaDriver(_kg(), overrides=ovr)
+    d = TuyaDriver(_kg(), overrides=ovr, expose_unused=True)
     p = d.descriptor["props"]
     assert p["countdown_1"]["label"] == "Timer" and p["countdown_1"]["unit"] == "min" and "category" not in p["countdown_1"]
     assert "cycle_time" not in p and d.descriptor["model"] == "X1"
@@ -164,14 +164,14 @@ def test_override_dp_definition_is_classified_and_remove_hides_fallback():
     ovr = {"prod1": {"dp": {"104": {"code": "percent_control", "type": "Integer",
                                     "values": {"min": 0, "max": 100, "scale": 0, "step": 1, "unit": "%"}}},
                      "remove": ["cycle_time"]}}
-    d = TuyaDriver(dev, overrides=ovr)
+    d = TuyaDriver(dev, overrides=ovr, expose_unused=True)
     assert "cycle_time" not in d.descriptor["props"] and "percent_control" in d.descriptor["props"]
     d.handle(0, Connected())
     outs = d.handle(1, Message("state", {"104": 40}))
     assert Value("percent_control", 40) in outs
     assert d.handle(2, Command("percent_control", 60))[0].json == {"dps": {"104": 60}}
     # redefining an existing dp id points it at the new code
-    d2 = TuyaDriver(dev, overrides={"d1": {"dp": {"7": {"code": "renamed", "type": "Integer", "values": {"min": 0, "max": 9, "scale": 0, "step": 1}}}}})
+    d2 = TuyaDriver(dev, expose_unused=True, overrides={"d1": {"dp": {"7": {"code": "renamed", "type": "Integer", "values": {"min": 0, "max": 9, "scale": 0, "step": 1}}}}})
     assert "renamed" in d2.descriptor["props"] and "countdown_1" not in d2.descriptor["props"]
 
 
@@ -191,7 +191,7 @@ def test_merge_and_v1_migration():
     assert new["5rta89nj"]["dp"]["104"]["values"]["unit"] == "%" and new["5rta89nj"]["device"] == {"model": "Opener"}
     assert any("discovery_overrides" in w for w in warn) and any("comp" in w for w in warn)
     dev = _kg(); dev["product_id"] = "5rta89nj"
-    assert "percent_control" in TuyaDriver(dev, overrides=new).descriptor["props"]
+    assert "percent_control" in TuyaDriver(dev, overrides=new, expose_unused=True).descriptor["props"]
 
 
 # --- code converters ---------------------------------------------------------------------------
@@ -264,3 +264,45 @@ def test_custom_python_converter_and_registration():
     hidden = TuyaDriver(curtain(), converters={"p": [Counter]}, overrides={"cur1": {"props": {"updates": {"hide": True}}}})
     hidden.handle(0, Connected())
     assert Value("updates", 1) not in hidden.handle(1, Message("state", {"3": 10}))
+
+
+# --- alarm panel and robot vacuum ----------------------------------------------------------------
+def _with_dpmap(code, **kw):
+    """A core fixture has no local_strategy; number its dps by status order."""
+    import fixtures
+    dev = fixtures.load(code)
+    dpmap = {str(i + 1): c for i, c in enumerate(dev["status"])}
+    d = TuyaDriver(dev, dpmap=dpmap, **kw)
+    d.handle(0, Connected())
+    return d, {c: i for i, c in dpmap.items()}
+
+
+def _sent(d, now, prop, value=None):
+    (out,) = d.handle(now, Command(prop, value))
+    return out.json["dps"]
+
+
+def test_alarm_panel_states_and_arming():
+    d, ids = _with_dpmap("mal_gyitctrjj1kefxp2", allow_hazardous=True)
+    assert d.descriptor["kind"] == "alarm" and d.descriptor["props"]["alarm_state"]["role"] == "alarm_state"
+    m = ids["master_mode"]
+    assert _sent(d, 1, "arm_home") == {m: "home"} and _sent(d, 2, "arm_away") == {m: "arm"}
+    assert _sent(d, 3, "disarm") == {m: "disarmed"}
+    vals = lambda outs: {o.prop: o.value for o in outs if isinstance(o, Value)}
+    assert vals(d.handle(4, Message("state", {m: "home"})))["alarm_state"] == "armed_home"
+    assert vals(d.handle(5, Message("active", {ids["master_state"]: "alarm", ids["alarm_msg"]: ""})))["alarm_state"] == "triggered"
+    import fixtures
+    assert "disarm" not in TuyaDriver(fixtures.load("mal_gyitctrjj1kefxp2")).descriptor["props"]         # S-1
+
+
+def test_robot_vacuum_state_and_commands():
+    d, ids = _with_dpmap("sd_lr33znaodtyarrrz")
+    p = d.descriptor["props"]
+    assert d.descriptor["kind"] == "vacuum" and p["vacuum_state"]["role"] == "vacuum_state"
+    assert [n for n in ("start", "pause", "return_home", "locate") if p[n]["role"] == n] == ["start", "pause", "return_home", "locate"]
+    assert _sent(d, 1, "start") == {ids["power_go"]: True} and _sent(d, 2, "stop") == {ids["power_go"]: False}
+    assert _sent(d, 3, "pause") == {ids["pause"]: True} and _sent(d, 4, "return_home") == {ids["switch_charge"]: True}
+    assert _sent(d, 5, "locate") == {ids["seek"]: True} and _sent(d, 6, "fan_speed", "gentle") == {ids["suction"]: "gentle"}
+    vals = {o.prop: o.value for o in d.handle(7, Message("state", {ids["status"]: "cleaning", ids["suction"]: "strong"}))
+            if isinstance(o, Value)}
+    assert vals["vacuum_state"] == "cleaning" and vals["fan_speed"] == "strong"
