@@ -1,0 +1,272 @@
+{
+  "synth_climate_01": {
+    "category": "wk",
+    "name": "synth_thermostat_basic",
+    "payloads": {
+      "homeassistant/climate/synth_climate_01_thermostat/config": {
+        "availability_template": "{{ 'offline' if value_json is defined and value_json != None and value_json.errorCode in [901, 905, 914] else 'online' }}",
+        "availability_topic": "rustuya/error/synth_climate_01",
+        "current_temperature_template": "{{ (value_json.value if value_json is defined and value_json != None and value_json.value != None else '') if value_json.type | default('') == 'state' else '' }}",
+        "current_temperature_topic": "rustuya/event/synth_climate_01/3",
+        "device": {
+          "identifiers": [
+            "synth_climate_01"
+          ],
+          "manufacturer": "rustuya",
+          "model": "Synthetic Thermostat",
+          "name": "synth_thermostat_basic"
+        },
+        "mode_command_topic": "rustuya/command/set/synth_climate_01/4",
+        "mode_state_template": "{{ (value_json.value if value_json is defined and value_json != None and value_json.value != None else '') if value_json.type | default('') == 'state' else '' }}",
+        "mode_state_topic": "rustuya/event/synth_climate_01/4",
+        "name": null,
+        "payload_available": "online",
+        "payload_not_available": "offline",
+        "power_command_topic": "rustuya/command/set/synth_climate_01/1",
+        "temperature_command_topic": "rustuya/command/set/synth_climate_01/2",
+        "temperature_state_template": "{{ (value_json.value if value_json is defined and value_json != None and value_json.value != None else '') if value_json.type | default('') == 'state' else '' }}",
+        "temperature_state_topic": "rustuya/event/synth_climate_01/2",
+        "unique_id": "synth_climate_01_climate"
+      }
+    },
+    "product_id": "synth_wk_001",
+    "source": "generic"
+  },
+  "synth_climate_02": {
+    "category": "wk",
+    "name": "synth_thermostat_scaled",
+    "payloads": {
+      "homeassistant/climate/synth_climate_02_thermostat/config": {
+        "availability_template": "{{ 'offline' if value_json is defined and value_json != None and value_json.errorCode in [901, 905, 914] else 'online' }}",
+        "availability_topic": "rustuya/error/synth_climate_02",
+        "current_temperature_template": "{{ (((value_json.value | float) / 10) | round(1) if value_json is defined and value_json != None and value_json.value != None else '') if value_json.type | default('') == 'state' else '' }}",
+        "current_temperature_topic": "rustuya/event/synth_climate_02/2",
+        "device": {
+          "identifiers": [
+            "synth_climate_02"
+          ],
+          "manufacturer": "rustuya",
+          "model": "Synthetic Thermostat (scale=1)",
+          "name": "synth_thermostat_scaled"
+        },
+        "name": null,
+        "payload_available": "online",
+        "payload_not_available": "offline",
+        "temperature_command_topic": "rustuya/command/set/synth_climate_02/1",
+        "temperature_state_template": "{{ (((value_json.value | float) / 10) | round(1) if value_json is defined and value_json != None and value_json.value != None else '') if value_json.type | default('') == 'state' else '' }}",
+        "temperature_state_topic": "rustuya/event/synth_climate_02/1",
+        "unique_id": "synth_climate_02_climate"
+      }
+    },
+    "product_id": "synth_wk_002",
+    "source": "generic"
+  },
+  "synth_contact_01": {
+    "category": "mcs",
+    "name": "synth_door_sensor",
+    "payloads": {
+      "homeassistant/binary_sensor/synth_contact_01_switch/config": {
+        "availability_template": "{{ 'offline' if value_json is defined and value_json != None and value_json.errorCode in [901, 905, 914] else 'online' }}",
+        "availability_topic": "rustuya/error/synth_gateway_001",
+        "device": {
+          "identifiers": [
+            "synth_contact_01"
+          ],
+          "manufacturer": "rustuya",
+          "model": "Synthetic Door Sensor",
+          "name": "synth_door_sensor"
+        },
+        "device_class": "door",
+        "name": "Switch",
+        "payload_available": "online",
+        "payload_not_available": "offline",
+        "payload_off": "false",
+        "payload_on": "true",
+        "state_topic": "rustuya/event/synth_contact_01/101",
+        "unique_id": "synth_contact_01_switch",
+        "value_template": "{{ ('true' if value_json is defined and value_json != None and value_json.value != None and value_json.value == true else 'false' if value_json is defined and value_json != None and value_json.value != None and value_json.value == false else '') if value_json.type | default('') == 'state' else '' }}"
+      },
+      "homeassistant/sensor/synth_contact_01_battery/config": {
+        "availability_template": "{{ 'offline' if value_json is defined and value_json != None and value_json.errorCode in [901, 905, 914] else 'online' }}",
+        "availability_topic": "rustuya/error/synth_gateway_001",
+        "device": {
+          "identifiers": [
+            "synth_contact_01"
+          ],
+          "manufacturer": "rustuya",
+          "model": "Synthetic Door Sensor",
+          "name": "synth_door_sensor"
+        },
+        "device_class": "battery",
+        "name": "Battery",
+        "payload_available": "online",
+        "payload_not_available": "offline",
+        "state_topic": "rustuya/event/synth_contact_01/103",
+        "unique_id": "synth_contact_01_battery",
+        "unit_of_measurement": "%",
+        "value_template": "{{ (value_json.value if value_json is defined and value_json != None and value_json.value != None else '') if value_json.type | default('') == 'state' else '' }}"
+      }
+    },
+    "product_id": "synth_mcs_001",
+    "source": "generic"
+  },
+  "synth_energy_01": {
+    "category": "cz",
+    "name": "synth_energy_meter",
+    "payloads": {
+      "homeassistant/sensor/synth_energy_01_add_ele/config": {
+        "availability_template": "{{ 'offline' if value_json is defined and value_json != None and value_json.errorCode in [901, 905, 914] else 'online' }}",
+        "availability_topic": "rustuya/error/synth_energy_01",
+        "device": {
+          "identifiers": [
+            "synth_energy_01"
+          ],
+          "manufacturer": "rustuya",
+          "model": "Synthetic Energy Meter",
+          "name": "synth_energy_meter"
+        },
+        "device_class": "energy",
+        "force_update": true,
+        "name": "Add ele",
+        "payload_available": "online",
+        "payload_not_available": "offline",
+        "state_topic": "rustuya/event/synth_energy_01/18",
+        "unique_id": "synth_energy_01_add_ele",
+        "unit_of_measurement": "kWh",
+        "value_template": "{{ (((value_json.value | float) / 1000) | round(3) if value_json is defined and value_json != None and value_json.value != None else '') if value_json.type | default('') == 'active' else '' }}"
+      },
+      "homeassistant/sensor/synth_energy_01_add_ele_passive/config": {
+        "availability_template": "{{ 'offline' if value_json is defined and value_json != None and value_json.errorCode in [901, 905, 914] else 'online' }}",
+        "availability_topic": "rustuya/error/synth_energy_01",
+        "device": {
+          "identifiers": [
+            "synth_energy_01"
+          ],
+          "manufacturer": "rustuya",
+          "model": "Synthetic Energy Meter",
+          "name": "synth_energy_meter"
+        },
+        "device_class": "energy",
+        "force_update": true,
+        "name": "Add ele passive",
+        "payload_available": "online",
+        "payload_not_available": "offline",
+        "state_topic": "rustuya/event/synth_energy_01/18",
+        "unique_id": "synth_energy_01_add_ele_passive",
+        "unit_of_measurement": "kWh",
+        "value_template": "{{ (((value_json.value | float) / 1000) | round(3) if value_json is defined and value_json != None and value_json.value != None else '') if value_json.type | default('') == 'passive' else '' }}"
+      },
+      "homeassistant/sensor/synth_energy_01_cur_power/config": {
+        "availability_template": "{{ 'offline' if value_json is defined and value_json != None and value_json.errorCode in [901, 905, 914] else 'online' }}",
+        "availability_topic": "rustuya/error/synth_energy_01",
+        "device": {
+          "identifiers": [
+            "synth_energy_01"
+          ],
+          "manufacturer": "rustuya",
+          "model": "Synthetic Energy Meter",
+          "name": "synth_energy_meter"
+        },
+        "device_class": "power",
+        "name": "Cur power",
+        "payload_available": "online",
+        "payload_not_available": "offline",
+        "state_topic": "rustuya/event/synth_energy_01/17",
+        "unique_id": "synth_energy_01_cur_power",
+        "unit_of_measurement": "W",
+        "value_template": "{{ (value_json.value if value_json is defined and value_json != None and value_json.value != None else '') if value_json.type | default('') == 'state' else '' }}"
+      },
+      "homeassistant/sensor/synth_energy_01_energy/config": {
+        "availability_template": "{{ 'offline' if value_json is defined and value_json != None and value_json.errorCode in [901, 905, 914] else 'online' }}",
+        "availability_topic": "rustuya/error/synth_energy_01",
+        "device": {
+          "identifiers": [
+            "synth_energy_01"
+          ],
+          "manufacturer": "rustuya",
+          "model": "Synthetic Energy Meter",
+          "name": "synth_energy_meter"
+        },
+        "name": "Energy",
+        "payload_available": "online",
+        "payload_not_available": "offline",
+        "state_topic": "rustuya/event/synth_energy_01/19",
+        "unique_id": "synth_energy_01_energy",
+        "unit_of_measurement": "kWh",
+        "value_template": "{{ (((value_json.value | float) / 1000) | round(3) if value_json is defined and value_json != None and value_json.value != None else '') if value_json.type | default('') == 'state' else '' }}"
+      }
+    },
+    "product_id": "synth_cz_001",
+    "source": "generic"
+  },
+  "synth_fan_01": {
+    "category": "fs",
+    "name": "synth_fan_basic",
+    "payloads": {
+      "homeassistant/fan/synth_fan_01_fan/config": {
+        "availability_template": "{{ 'offline' if value_json is defined and value_json != None and value_json.errorCode in [901, 905, 914] else 'online' }}",
+        "availability_topic": "rustuya/error/synth_fan_01",
+        "command_topic": "rustuya/command/set/synth_fan_01/1",
+        "device": {
+          "identifiers": [
+            "synth_fan_01"
+          ],
+          "manufacturer": "rustuya",
+          "model": "Synthetic Fan",
+          "name": "synth_fan_basic"
+        },
+        "name": null,
+        "oscillation_command_topic": "rustuya/command/set/synth_fan_01/3",
+        "oscillation_state_topic": "rustuya/event/synth_fan_01/3",
+        "oscillation_value_template": "{{ (value_json.value if value_json is defined and value_json != None and value_json.value != None else '') if value_json.type | default('') == 'state' else '' }}",
+        "payload_available": "online",
+        "payload_not_available": "offline",
+        "payload_off": "false",
+        "payload_on": "true",
+        "percentage_command_topic": "rustuya/command/set/synth_fan_01/2",
+        "percentage_state_topic": "rustuya/event/synth_fan_01/2",
+        "percentage_value_template": "{{ (value_json.value if value_json is defined and value_json != None and value_json.value != None else '') if value_json.type | default('') == 'state' else '' }}",
+        "state_topic": "rustuya/event/synth_fan_01/1",
+        "state_value_template": "{{ (value_json.value if value_json is defined and value_json != None and value_json.value != None else '') if value_json.type | default('') == 'state' else '' }}",
+        "unique_id": "synth_fan_01_fan"
+      }
+    },
+    "product_id": "synth_fs_001",
+    "source": "generic"
+  },
+  "synth_light_01": {
+    "category": "dj",
+    "name": "synth_light_basic",
+    "payloads": {
+      "homeassistant/light/synth_light_01_led/config": {
+        "availability_template": "{{ 'offline' if value_json is defined and value_json != None and value_json.errorCode in [901, 905, 914] else 'online' }}",
+        "availability_topic": "rustuya/error/synth_light_01",
+        "brightness_command_topic": "rustuya/command/set/synth_light_01/2",
+        "brightness_state_topic": "rustuya/event/synth_light_01/2",
+        "brightness_value_template": "{{ (value_json.value if value_json is defined and value_json != None and value_json.value != None else '') if value_json.type | default('') == 'state' else '' }}",
+        "color_temp_command_topic": "rustuya/command/set/synth_light_01/3",
+        "color_temp_state_topic": "rustuya/event/synth_light_01/3",
+        "color_temp_value_template": "{{ (value_json.value if value_json is defined and value_json != None and value_json.value != None else '') if value_json.type | default('') == 'state' else '' }}",
+        "command_topic": "rustuya/command/set/synth_light_01/1",
+        "device": {
+          "identifiers": [
+            "synth_light_01"
+          ],
+          "manufacturer": "rustuya",
+          "model": "Synthetic Light",
+          "name": "synth_light_basic"
+        },
+        "name": null,
+        "payload_available": "online",
+        "payload_not_available": "offline",
+        "payload_off": "false",
+        "payload_on": "true",
+        "state_topic": "rustuya/event/synth_light_01/1",
+        "state_value_template": "{{ (value_json.value if value_json is defined and value_json != None and value_json.value != None else '') if value_json.type | default('') == 'state' else '' }}",
+        "unique_id": "synth_light_01_light"
+      }
+    },
+    "product_id": "synth_dj_001",
+    "source": "generic"
+  }
+}

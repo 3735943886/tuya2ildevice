@@ -1,0 +1,15 @@
+{
+ "tables": {
+  "CAMERAS": {
+   "dghsxj": {
+    "$desc": "TuyaCameraEntityDescription",
+    "key": ""
+   },
+   "sp": {
+    "$desc": "TuyaCameraEntityDescription",
+    "key": ""
+   }
+  }
+ },
+ "aliases": []
+}

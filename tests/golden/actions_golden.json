@@ -1,0 +1,887 @@
+[
+ {
+  "mock_device_code": "mal_gyitctrjj1kefxp2",
+  "entity_id": "alarm_control_panel.multifunction_alarm",
+  "service": "$SERVICE_ALARM_ARM_AWAY",
+  "expected_commands": [
+   {
+    "code": "master_mode",
+    "value": "arm"
+   }
+  ],
+  "test": "test_alarm_control_panel::test_service"
+ },
+ {
+  "mock_device_code": "mal_gyitctrjj1kefxp2",
+  "entity_id": "alarm_control_panel.multifunction_alarm",
+  "service": "$SERVICE_ALARM_ARM_HOME",
+  "expected_commands": [
+   {
+    "code": "master_mode",
+    "value": "home"
+   }
+  ],
+  "test": "test_alarm_control_panel::test_service"
+ },
+ {
+  "mock_device_code": "mal_gyitctrjj1kefxp2",
+  "entity_id": "alarm_control_panel.multifunction_alarm",
+  "service": "$SERVICE_ALARM_DISARM",
+  "expected_commands": [
+   {
+    "code": "master_mode",
+    "value": "disarmed"
+   }
+  ],
+  "test": "test_alarm_control_panel::test_service"
+ },
+ {
+  "mock_device_code": "mal_gyitctrjj1kefxp2",
+  "entity_id": "alarm_control_panel.multifunction_alarm",
+  "service": "$SERVICE_ALARM_TRIGGER",
+  "expected_commands": [
+   {
+    "code": "master_mode",
+    "value": "sos"
+   }
+  ],
+  "test": "test_alarm_control_panel::test_service"
+ },
+ {
+  "mock_device_code": "wg2_pkhw2vbphv4csrir",
+  "entity_id": "alarm_control_panel.c30",
+  "service": "$SERVICE_ALARM_ARM_AWAY",
+  "expected_commands": [
+   {
+    "code": "master_mode",
+    "value": "arm"
+   }
+  ],
+  "test": "test_alarm_control_panel::test_service"
+ },
+ {
+  "mock_device_code": "wg2_pkhw2vbphv4csrir",
+  "entity_id": "alarm_control_panel.c30",
+  "service": "$SERVICE_ALARM_ARM_HOME",
+  "expected_commands": [
+   {
+    "code": "master_mode",
+    "value": "home"
+   }
+  ],
+  "test": "test_alarm_control_panel::test_service"
+ },
+ {
+  "mock_device_code": "wg2_pkhw2vbphv4csrir",
+  "entity_id": "alarm_control_panel.c30",
+  "service": "$SERVICE_ALARM_DISARM",
+  "expected_commands": [
+   {
+    "code": "master_mode",
+    "value": "disarmed"
+   }
+  ],
+  "test": "test_alarm_control_panel::test_service"
+ },
+ {
+  "mock_device_code": "wg2_pkhw2vbphv4csrir",
+  "entity_id": "alarm_control_panel.c30",
+  "service": "$SERVICE_ALARM_TRIGGER",
+  "expected_commands": [
+   {
+    "code": "master_mode",
+    "value": "sos"
+   }
+  ],
+  "test": "test_alarm_control_panel::test_service"
+ },
+ {
+  "mock_device_code": "sp_rudejjigkywujjvs",
+  "service": "$SERVICE_DISABLE_MOTION",
+  "expected_commands": [
+   {
+    "code": "motion_switch",
+    "value": false
+   }
+  ],
+  "entity_id": "camera.burocam",
+  "test": "test_camera::test_action"
+ },
+ {
+  "mock_device_code": "sp_rudejjigkywujjvs",
+  "service": "$SERVICE_ENABLE_MOTION",
+  "expected_commands": [
+   {
+    "code": "motion_switch",
+    "value": true
+   }
+  ],
+  "entity_id": "camera.burocam",
+  "test": "test_camera::test_action"
+ },
+ {
+  "mock_device_code": "kt_5wnlzekkstwcdsvm",
+  "entity_id": "climate.air_conditioner",
+  "service": "$SERVICE_SET_TEMPERATURE",
+  "service_data": {
+   "$ATTR_TEMPERATURE": 22.7
+  },
+  "expected_commands": [
+   {
+    "code": "temp_set",
+    "value": 23
+   }
+  ],
+  "test": "test_climate::test_action"
+ },
+ {
+  "mock_device_code": "kt_5wnlzekkstwcdsvm",
+  "entity_id": "climate.air_conditioner",
+  "service": "$SERVICE_SET_FAN_MODE",
+  "service_data": {
+   "$ATTR_FAN_MODE": 2
+  },
+  "expected_commands": [
+   {
+    "code": "windspeed",
+    "value": "2"
+   }
+  ],
+  "test": "test_climate::test_action"
+ },
+ {
+  "mock_device_code": "kt_5wnlzekkstwcdsvm",
+  "entity_id": "climate.air_conditioner",
+  "service": "$SERVICE_TURN_ON",
+  "service_data": {},
+  "expected_commands": [
+   {
+    "code": "switch",
+    "value": true
+   }
+  ],
+  "test": "test_climate::test_action"
+ },
+ {
+  "mock_device_code": "kt_5wnlzekkstwcdsvm",
+  "entity_id": "climate.air_conditioner",
+  "service": "$SERVICE_TURN_OFF",
+  "service_data": {},
+  "expected_commands": [
+   {
+    "code": "switch",
+    "value": false
+   }
+  ],
+  "test": "test_climate::test_action"
+ },
+ {
+  "mock_device_code": "kt_ibmmirhhq62mmf1g",
+  "entity_id": "climate.master_bedroom_ac",
+  "service": "$SERVICE_SET_HVAC_MODE",
+  "service_data": {
+   "$ATTR_HVAC_MODE": "$HVACMode.COOL"
+  },
+  "expected_commands": [
+   {
+    "code": "switch",
+    "value": true
+   },
+   {
+    "code": "mode",
+    "value": "cold"
+   }
+  ],
+  "test": "test_climate::test_action"
+ },
+ {
+  "mock_device_code": "wk_gc1bxoq2hafxpa35",
+  "entity_id": "climate.polotentsosushitel",
+  "service": "$SERVICE_SET_PRESET_MODE",
+  "service_data": {
+   "$ATTR_PRESET_MODE": "holiday"
+  },
+  "expected_commands": [
+   {
+    "code": "mode",
+    "value": "holiday"
+   }
+  ],
+  "test": "test_climate::test_action"
+ },
+ {
+  "mock_device_code": "kt_wxqdp6ecfkd78zzz",
+  "entity_id": "climate.mini_split",
+  "service": "$SERVICE_SET_SWING_MODE",
+  "service_data": {
+   "$ATTR_SWING_MODE": "horizontal"
+  },
+  "expected_commands": [
+   {
+    "code": "switch_horizontal",
+    "value": true
+   }
+  ],
+  "test": "test_climate::test_action"
+ },
+ {
+  "mock_device_code": "cl_zah67ekd",
+  "entity_id": "cover.kitchen_blinds_curtain",
+  "service": "$SERVICE_OPEN_COVER",
+  "service_data": {},
+  "expected_commands": [
+   {
+    "code": "percent_control",
+    "value": 0
+   }
+  ],
+  "test": "test_cover::test_action"
+ },
+ {
+  "mock_device_code": "cl_zah67ekd",
+  "entity_id": "cover.kitchen_blinds_curtain",
+  "service": "$SERVICE_CLOSE_COVER",
+  "service_data": {},
+  "expected_commands": [
+   {
+    "code": "percent_control",
+    "value": 100
+   }
+  ],
+  "test": "test_cover::test_action"
+ },
+ {
+  "mock_device_code": "cl_zah67ekd",
+  "entity_id": "cover.kitchen_blinds_curtain",
+  "service": "$SERVICE_SET_COVER_POSITION",
+  "service_data": {
+   "$ATTR_POSITION": 25
+  },
+  "expected_commands": [
+   {
+    "code": "percent_control",
+    "value": 75
+   }
+  ],
+  "test": "test_cover::test_action"
+ },
+ {
+  "mock_device_code": "cl_n3xgr5pdmpinictg",
+  "entity_id": "cover.estore_sala_curtain",
+  "service": "$SERVICE_OPEN_COVER",
+  "service_data": {},
+  "expected_commands": [
+   {
+    "code": "control",
+    "value": "open"
+   }
+  ],
+  "test": "test_cover::test_action"
+ },
+ {
+  "mock_device_code": "cl_n3xgr5pdmpinictg",
+  "entity_id": "cover.estore_sala_curtain",
+  "service": "$SERVICE_CLOSE_COVER",
+  "service_data": {},
+  "expected_commands": [
+   {
+    "code": "control",
+    "value": "close"
+   }
+  ],
+  "test": "test_cover::test_action"
+ },
+ {
+  "mock_device_code": "cl_n3xgr5pdmpinictg",
+  "entity_id": "cover.estore_sala_curtain",
+  "service": "$SERVICE_STOP_COVER",
+  "service_data": {},
+  "expected_commands": [
+   {
+    "code": "control",
+    "value": "stop"
+   }
+  ],
+  "test": "test_cover::test_action"
+ },
+ {
+  "mock_device_code": "clkg_wltqkykhni0papzj",
+  "service_name": "$SERVICE_OPEN_COVER",
+  "service_kwargs": {},
+  "expected_commands": [
+   {
+    "code": "percent_control",
+    "value": 100
+   }
+  ],
+  "entity_id": "cover.roller_shutter_living_room_curtain",
+  "test": "test_cover::test_clkg_wltqkykhni0papzj_action"
+ },
+ {
+  "mock_device_code": "clkg_wltqkykhni0papzj",
+  "service_name": "$SERVICE_SET_COVER_POSITION",
+  "service_kwargs": {
+   "$ATTR_POSITION": 25
+  },
+  "expected_commands": [
+   {
+    "code": "percent_control",
+    "value": 25
+   }
+  ],
+  "entity_id": "cover.roller_shutter_living_room_curtain",
+  "test": "test_cover::test_clkg_wltqkykhni0papzj_action"
+ },
+ {
+  "mock_device_code": "clkg_wltqkykhni0papzj",
+  "service_name": "$SERVICE_CLOSE_COVER",
+  "service_kwargs": {},
+  "expected_commands": [
+   {
+    "code": "percent_control",
+    "value": 0
+   }
+  ],
+  "entity_id": "cover.roller_shutter_living_room_curtain",
+  "test": "test_cover::test_clkg_wltqkykhni0papzj_action"
+ },
+ {
+  "mock_device_code": "ks_j9fa8ahzac8uvlfl",
+  "entity_id": "fan.tower_fan_ca_407g_smart",
+  "service": "$SERVICE_OSCILLATE",
+  "service_data": {
+   "oscillating": false
+  },
+  "expected_commands": [
+   {
+    "code": "switch_horizontal",
+    "value": false
+   }
+  ],
+  "test": "test_fan::test_action"
+ },
+ {
+  "mock_device_code": "ks_j9fa8ahzac8uvlfl",
+  "entity_id": "fan.tower_fan_ca_407g_smart",
+  "service": "$SERVICE_OSCILLATE",
+  "service_data": {
+   "oscillating": true
+  },
+  "expected_commands": [
+   {
+    "code": "switch_horizontal",
+    "value": true
+   }
+  ],
+  "test": "test_fan::test_action"
+ },
+ {
+  "mock_device_code": "fs_g0ewlb1vmwqljzji",
+  "entity_id": "fan.ceiling_fan_with_light",
+  "service": "$SERVICE_SET_DIRECTION",
+  "service_data": {
+   "direction": "forward"
+  },
+  "expected_commands": [
+   {
+    "code": "fan_direction",
+    "value": "forward"
+   }
+  ],
+  "test": "test_fan::test_action"
+ },
+ {
+  "mock_device_code": "ks_j9fa8ahzac8uvlfl",
+  "entity_id": "fan.tower_fan_ca_407g_smart",
+  "service": "$SERVICE_SET_PRESET_MODE",
+  "service_data": {
+   "preset_mode": "sleep"
+  },
+  "expected_commands": [
+   {
+    "code": "mode",
+    "value": "sleep"
+   }
+  ],
+  "test": "test_fan::test_action"
+ },
+ {
+  "mock_device_code": "fs_g0ewlb1vmwqljzji",
+  "entity_id": "fan.ceiling_fan_with_light",
+  "service": "$SERVICE_TURN_OFF",
+  "service_data": {},
+  "expected_commands": [
+   {
+    "code": "switch",
+    "value": false
+   }
+  ],
+  "test": "test_fan::test_action"
+ },
+ {
+  "mock_device_code": "fs_g0ewlb1vmwqljzji",
+  "entity_id": "fan.ceiling_fan_with_light",
+  "service": "$SERVICE_TURN_ON",
+  "service_data": {
+   "preset_mode": "sleep"
+  },
+  "expected_commands": [
+   {
+    "code": "switch",
+    "value": true
+   },
+   {
+    "code": "mode",
+    "value": "sleep"
+   }
+  ],
+  "test": "test_fan::test_action"
+ },
+ {
+  "mock_device_code": "fs_g0ewlb1vmwqljzji",
+  "entity_id": "fan.ceiling_fan_with_light",
+  "service": "$SERVICE_SET_PERCENTAGE",
+  "service_data": {
+   "percentage": 50
+  },
+  "expected_commands": [
+   {
+    "code": "fan_speed",
+    "value": "3"
+   }
+  ],
+  "test": "test_fan::test_action"
+ },
+ {
+  "mock_device_code": "fs_g0ewlb1vmwqljzji",
+  "entity_id": "fan.ceiling_fan_with_light",
+  "service": "$SERVICE_SET_PERCENTAGE",
+  "service_data": {
+   "percentage": 0
+  },
+  "expected_commands": [
+   {
+    "code": "switch",
+    "value": false
+   }
+  ],
+  "test": "test_fan::test_action"
+ },
+ {
+  "mock_device_code": "ks_j9fa8ahzac8uvlfl",
+  "entity_id": "fan.tower_fan_ca_407g_smart",
+  "service": "$SERVICE_SET_PERCENTAGE",
+  "service_data": {
+   "percentage": 0
+  },
+  "expected_commands": [
+   {
+    "code": "switch",
+    "value": false
+   }
+  ],
+  "test": "test_fan::test_action"
+ },
+ {
+  "mock_device_code": "cs_zibqa9dutqyaxym2",
+  "service": "$SERVICE_TURN_ON",
+  "service_data": {},
+  "expected_commands": [
+   {
+    "code": "switch",
+    "value": true
+   }
+  ],
+  "entity_id": "humidifier.dehumidifier",
+  "test": "test_humidifier::test_action"
+ },
+ {
+  "mock_device_code": "cs_zibqa9dutqyaxym2",
+  "service": "$SERVICE_TURN_OFF",
+  "service_data": {},
+  "expected_commands": [
+   {
+    "code": "switch",
+    "value": false
+   }
+  ],
+  "entity_id": "humidifier.dehumidifier",
+  "test": "test_humidifier::test_action"
+ },
+ {
+  "mock_device_code": "cs_zibqa9dutqyaxym2",
+  "service": "$SERVICE_SET_HUMIDITY",
+  "service_data": {
+   "$ATTR_HUMIDITY": 50
+  },
+  "expected_commands": [
+   {
+    "code": "dehumidify_set_value",
+    "value": 50
+   }
+  ],
+  "entity_id": "humidifier.dehumidifier",
+  "test": "test_humidifier::test_action"
+ },
+ {
+  "mock_device_code": "dj_mki13ie507rlry4r",
+  "entity_id": "light.garage_light",
+  "service": "$SERVICE_TURN_ON",
+  "service_data": {
+   "$ATTR_WHITE": true
+  },
+  "expected_commands": [
+   {
+    "code": "switch_led",
+    "value": true
+   },
+   {
+    "code": "work_mode",
+    "value": "white"
+   },
+   {
+    "code": "bright_value_v2",
+    "value": 546
+   }
+  ],
+  "test": "test_light::test_action"
+ },
+ {
+  "mock_device_code": "dj_mki13ie507rlry4r",
+  "entity_id": "light.garage_light",
+  "service": "$SERVICE_TURN_ON",
+  "service_data": {
+   "$ATTR_BRIGHTNESS": 150
+  },
+  "expected_commands": [
+   {
+    "code": "switch_led",
+    "value": true
+   },
+   {
+    "code": "bright_value_v2",
+    "value": 592
+   }
+  ],
+  "test": "test_light::test_action"
+ },
+ {
+  "mock_device_code": "dj_mki13ie507rlry4r",
+  "entity_id": "light.garage_light",
+  "service": "$SERVICE_TURN_ON",
+  "service_data": {
+   "$ATTR_WHITE": true,
+   "$ATTR_BRIGHTNESS": 150
+  },
+  "expected_commands": [
+   {
+    "code": "switch_led",
+    "value": true
+   },
+   {
+    "code": "work_mode",
+    "value": "white"
+   },
+   {
+    "code": "bright_value_v2",
+    "value": 592
+   }
+  ],
+  "test": "test_light::test_action"
+ },
+ {
+  "mock_device_code": "dj_mki13ie507rlry4r",
+  "entity_id": "light.garage_light",
+  "service": "$SERVICE_TURN_ON",
+  "service_data": {
+   "$ATTR_WHITE": 150
+  },
+  "expected_commands": [
+   {
+    "code": "switch_led",
+    "value": true
+   },
+   {
+    "code": "work_mode",
+    "value": "white"
+   },
+   {
+    "code": "bright_value_v2",
+    "value": 592
+   }
+  ],
+  "test": "test_light::test_action"
+ },
+ {
+  "mock_device_code": "dj_mki13ie507rlry4r",
+  "entity_id": "light.garage_light",
+  "service": "$SERVICE_TURN_ON",
+  "service_data": {
+   "$ATTR_BRIGHTNESS": 255,
+   "$ATTR_HS_COLOR": [
+    10.1,
+    20.2
+   ]
+  },
+  "expected_commands": [
+   {
+    "code": "switch_led",
+    "value": true
+   },
+   {
+    "code": "work_mode",
+    "value": "colour"
+   },
+   {
+    "code": "colour_data_v2",
+    "value": "{\"h\": 10, \"s\": 202, \"v\": 1000}"
+   }
+  ],
+  "test": "test_light::test_action"
+ },
+ {
+  "mock_device_code": "dj_mki13ie507rlry4r",
+  "entity_id": "light.garage_light",
+  "service": "$SERVICE_TURN_OFF",
+  "service_data": {},
+  "expected_commands": [
+   {
+    "code": "switch_led",
+    "value": false
+   }
+  ],
+  "test": "test_light::test_action"
+ },
+ {
+  "mock_device_code": "dj_ilddqqih3tucdk68",
+  "entity_id": "light.ieskas",
+  "service": "$SERVICE_TURN_ON",
+  "service_data": {
+   "$ATTR_BRIGHTNESS": 255,
+   "$ATTR_COLOR_TEMP_KELVIN": 5000
+  },
+  "expected_commands": [
+   {
+    "code": "switch_led",
+    "value": true
+   },
+   {
+    "code": "temp_value",
+    "value": 221
+   },
+   {
+    "code": "bright_value",
+    "value": 255
+   }
+  ],
+  "test": "test_light::test_action"
+ },
+ {
+  "mock_device_code": "sp_sdd5f5f2dl5wydjf",
+  "service": "$SERVICE_TURN_ON",
+  "expected_commands": [
+   {
+    "code": "siren_switch",
+    "value": true
+   }
+  ],
+  "entity_id": "siren.c9_siren",
+  "test": "test_siren::test_action"
+ },
+ {
+  "mock_device_code": "sp_sdd5f5f2dl5wydjf",
+  "service": "$SERVICE_TURN_OFF",
+  "expected_commands": [
+   {
+    "code": "siren_switch",
+    "value": false
+   }
+  ],
+  "entity_id": "siren.c9_siren",
+  "test": "test_siren::test_action"
+ },
+ {
+  "mock_device_code": "cz_PGEkBctAbtzKOZng",
+  "service": "$SERVICE_TURN_ON",
+  "expected_commands": [
+   {
+    "code": "switch",
+    "value": true
+   }
+  ],
+  "entity_id": "switch.din_socket",
+  "test": "test_switch::test_action"
+ },
+ {
+  "mock_device_code": "cz_PGEkBctAbtzKOZng",
+  "service": "$SERVICE_TURN_OFF",
+  "expected_commands": [
+   {
+    "code": "switch",
+    "value": false
+   }
+  ],
+  "entity_id": "switch.din_socket",
+  "test": "test_switch::test_action"
+ },
+ {
+  "mock_device_code": "sd_i6hyjg3af7doaswm",
+  "entity_id": "vacuum.hoover",
+  "service": "$SERVICE_RETURN_TO_BASE",
+  "service_data": {},
+  "expected_commands": [
+   {
+    "code": "mode",
+    "value": "chargego"
+   }
+  ],
+  "test": "test_vacuum::test_action"
+ },
+ {
+  "mock_device_code": "sd_lr33znaodtyarrrz",
+  "entity_id": "vacuum.v20",
+  "service": "$SERVICE_RETURN_TO_BASE",
+  "service_data": {},
+  "expected_commands": [
+   {
+    "code": "switch_charge",
+    "value": true
+   }
+  ],
+  "test": "test_vacuum::test_action"
+ },
+ {
+  "mock_device_code": "sd_lr33znaodtyarrrz",
+  "entity_id": "vacuum.v20",
+  "service": "$SERVICE_SET_FAN_SPEED",
+  "service_data": {
+   "$ATTR_FAN_SPEED": "gentle"
+  },
+  "expected_commands": [
+   {
+    "code": "suction",
+    "value": "gentle"
+   }
+  ],
+  "test": "test_vacuum::test_action"
+ },
+ {
+  "mock_device_code": "sd_i6hyjg3af7doaswm",
+  "entity_id": "vacuum.hoover",
+  "service": "$SERVICE_LOCATE",
+  "service_data": {},
+  "expected_commands": [
+   {
+    "code": "seek",
+    "value": true
+   }
+  ],
+  "test": "test_vacuum::test_action"
+ },
+ {
+  "mock_device_code": "sd_i6hyjg3af7doaswm",
+  "entity_id": "vacuum.hoover",
+  "service": "$SERVICE_START",
+  "service_data": {},
+  "expected_commands": [
+   {
+    "code": "power_go",
+    "value": true
+   }
+  ],
+  "test": "test_vacuum::test_action"
+ },
+ {
+  "mock_device_code": "sd_i6hyjg3af7doaswm",
+  "entity_id": "vacuum.hoover",
+  "service": "$SERVICE_STOP",
+  "service_data": {},
+  "expected_commands": [
+   {
+    "code": "power_go",
+    "value": false
+   }
+  ],
+  "test": "test_vacuum::test_action"
+ },
+ {
+  "mock_device_code": "sd_lr33znaodtyarrrz",
+  "entity_id": "vacuum.v20",
+  "service": "$SERVICE_PAUSE",
+  "service_data": {},
+  "expected_commands": [
+   {
+    "code": "pause",
+    "value": true
+   }
+  ],
+  "test": "test_vacuum::test_action"
+ },
+ {
+  "mock_device_code": "sfkzq_ed7frwissyqrejic",
+  "service": "$SERVICE_OPEN_VALVE",
+  "expected_commands": [
+   {
+    "code": "switch_1",
+    "value": true
+   }
+  ],
+  "entity_id": "valve.jie_hashui_fa_valve_1",
+  "test": "test_valve::test_action"
+ },
+ {
+  "mock_device_code": "sfkzq_ed7frwissyqrejic",
+  "service": "$SERVICE_CLOSE_VALVE",
+  "expected_commands": [
+   {
+    "code": "switch_1",
+    "value": false
+   }
+  ],
+  "entity_id": "valve.jie_hashui_fa_valve_1",
+  "test": "test_valve::test_action"
+ },
+ {
+  "test": "test_button::test_action",
+  "mock_device_code": "sd_lr33znaodtyarrrz",
+  "entity_id": "button.v20_reset_duster_cloth",
+  "service": "$SERVICE_PRESS",
+  "service_data": {},
+  "expected_commands": [
+   {
+    "code": "reset_duster_cloth",
+    "value": true
+   }
+  ]
+ },
+ {
+  "test": "test_select::test_select_option",
+  "mock_device_code": "cl_zah67ekd",
+  "entity_id": "select.kitchen_blinds_motor_mode",
+  "service": "$SERVICE_SELECT_OPTION",
+  "service_data": {
+   "$ATTR_OPTION": "forward"
+  },
+  "expected_commands": [
+   {
+    "code": "control_back_mode",
+    "value": "forward"
+   }
+  ]
+ },
+ {
+  "test": "test_number::test_set_value",
+  "mock_device_code": "mal_gyitctrjj1kefxp2",
+  "entity_id": "number.multifunction_alarm_arm_delay",
+  "service": "$SERVICE_SET_VALUE",
+  "service_data": {
+   "$ATTR_VALUE": 18
+  },
+  "expected_commands": [
+   {
+    "code": "delay_set",
+    "value": 18
+   }
+  ]
+ }
+]

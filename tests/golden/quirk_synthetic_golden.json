@@ -1,0 +1,1132 @@
+{
+ "68nvbio9": {
+  "quirk_file": "cl_68nvbio9.py",
+  "error": null,
+  "category": "",
+  "local_strategy": {},
+  "function": {},
+  "status_range": {}
+ },
+ "7bqwya0ydtz4q3ss": {
+  "quirk_file": "znnbq_7bqwya0ydtz4q3ss.py",
+  "error": null,
+  "category": "",
+  "local_strategy": {
+   "10": {
+    "value_convert": "default",
+    "status_code": "power_total",
+    "config_item": {
+     "statusFormat": "{\"power_total\": \"$\"}",
+     "valueDesc": "{\"unit\": \"W\", \"min\": 0, \"max\": 50000000, \"scale\": 3, \"step\": 1}",
+     "valueType": "Integer",
+     "enumMappingMap": {},
+     "pid": "7bqwya0ydtz4q3ss"
+    }
+   }
+  },
+  "function": {},
+  "status_range": {
+   "power_total": {
+    "type": "Integer",
+    "values": "{\"unit\": \"W\", \"min\": 0, \"max\": 50000000, \"scale\": 3, \"step\": 1}",
+    "report_type": null
+   }
+  }
+ },
+ "QH3oyDNHKw9c1irH": {
+  "quirk_file": "cz_qh3oydnhkw9c1irh.py",
+  "error": null,
+  "category": "",
+  "local_strategy": {
+   "5": {
+    "value_convert": "default",
+    "status_code": "cur_power",
+    "config_item": {
+     "statusFormat": "{\"cur_power\": \"$\"}",
+     "valueDesc": "{\"unit\": \"W\", \"min\": 0, \"max\": 50000, \"scale\": 1, \"step\": 1}",
+     "valueType": "Integer",
+     "enumMappingMap": {},
+     "pid": "QH3oyDNHKw9c1irH"
+    }
+   },
+   "6": {
+    "value_convert": "default",
+    "status_code": "cur_voltage",
+    "config_item": {
+     "statusFormat": "{\"cur_voltage\": \"$\"}",
+     "valueDesc": "{\"unit\": \"V\", \"min\": 0, \"max\": 2500, \"scale\": 1, \"step\": 1}",
+     "valueType": "Integer",
+     "enumMappingMap": {},
+     "pid": "QH3oyDNHKw9c1irH"
+    }
+   }
+  },
+  "function": {},
+  "status_range": {
+   "cur_power": {
+    "type": "Integer",
+    "values": "{\"unit\": \"W\", \"min\": 0, \"max\": 50000, \"scale\": 1, \"step\": 1}",
+    "report_type": null
+   },
+   "cur_voltage": {
+    "type": "Integer",
+    "values": "{\"unit\": \"V\", \"min\": 0, \"max\": 2500, \"scale\": 1, \"step\": 1}",
+    "report_type": null
+   }
+  }
+ },
+ "avriaapskyik4eaa": {
+  "quirk_file": "pc_avriaapskyik4eaa.py",
+  "error": null,
+  "category": "",
+  "local_strategy": {
+   "40": {
+    "value_convert": "default",
+    "status_code": "light_mode",
+    "config_item": {
+     "statusFormat": "{\"light_mode\": \"$\"}",
+     "valueDesc": "{\"range\": [\"relay\", \"pos\", \"none\", \"on\"]}",
+     "valueType": "Enum",
+     "enumMappingMap": {},
+     "pid": "avriaapskyik4eaa"
+    }
+   }
+  },
+  "function": {
+   "light_mode": {
+    "type": "Enum",
+    "values": "{\"range\": [\"relay\", \"pos\", \"none\", \"on\"]}"
+   }
+  },
+  "status_range": {
+   "light_mode": {
+    "type": "Enum",
+    "values": "{\"range\": [\"relay\", \"pos\", \"none\", \"on\"]}",
+    "report_type": null
+   }
+  }
+ },
+ "b9oa3zocv4qq47iy": {
+  "quirk_file": "cl_b9oa3zocv4qq47iy.py",
+  "error": null,
+  "category": "",
+  "local_strategy": {},
+  "function": {},
+  "status_range": {}
+ },
+ "cf1sl3tj": {
+  "quirk_file": "cl_cf1sl3tj.py",
+  "error": null,
+  "category": "",
+  "local_strategy": {},
+  "function": {},
+  "status_range": {}
+ },
+ "cpmgn2cf": {
+  "quirk_file": "wk_cpmgn2cf.py",
+  "error": null,
+  "category": "",
+  "local_strategy": {
+   "4": {
+    "value_convert": "default",
+    "status_code": "mode",
+    "config_item": {
+     "statusFormat": "{\"mode\": \"$\"}",
+     "valueDesc": "{\"range\": [\"holiday\", \"auto\", \"manual\", \"comfort\", \"eco\", \"BOOST\", \"temp_auto\"]}",
+     "valueType": "Enum",
+     "enumMappingMap": {},
+     "pid": "cpmgn2cf"
+    }
+   }
+  },
+  "function": {
+   "mode": {
+    "type": "Enum",
+    "values": "{\"range\": [\"holiday\", \"auto\", \"manual\", \"comfort\", \"eco\", \"BOOST\", \"temp_auto\"]}"
+   }
+  },
+  "status_range": {
+   "mode": {
+    "type": "Enum",
+    "values": "{\"range\": [\"holiday\", \"auto\", \"manual\", \"comfort\", \"eco\", \"BOOST\", \"temp_auto\"]}",
+    "report_type": null
+   }
+  }
+ },
+ "crh9iaqFowdJX5UY": {
+  "quirk_file": "kt_crh9iaqfowdjx5uy.py",
+  "error": null,
+  "category": "",
+  "local_strategy": {
+   "2": {
+    "value_convert": "default",
+    "status_code": "temp_set",
+    "config_item": {
+     "statusFormat": "{\"temp_set\": \"$\"}",
+     "valueDesc": "{\"unit\": \"\\u2103\", \"min\": 16, \"max\": 30, \"scale\": 0, \"step\": 1}",
+     "valueType": "Integer",
+     "enumMappingMap": {},
+     "pid": "crh9iaqFowdJX5UY"
+    }
+   },
+   "3": {
+    "value_convert": "default",
+    "status_code": "temp_current",
+    "config_item": {
+     "statusFormat": "{\"temp_current\": \"$\"}",
+     "valueDesc": "{\"unit\": \"\\u2103\", \"min\": -7, \"max\": 98, \"scale\": 0, \"step\": 1}",
+     "valueType": "Integer",
+     "enumMappingMap": {},
+     "pid": "crh9iaqFowdJX5UY"
+    }
+   },
+   "4": {
+    "value_convert": "default",
+    "status_code": "mode",
+    "config_item": {
+     "statusFormat": "{\"mode\": \"$\"}",
+     "valueDesc": "{\"range\": [\"cold\", \"hot\", \"wet\", \"wind\"]}",
+     "valueType": "Enum",
+     "enumMappingMap": {},
+     "pid": "crh9iaqFowdJX5UY"
+    }
+   }
+  },
+  "function": {
+   "temp_set": {
+    "type": "Integer",
+    "values": "{\"unit\": \"\\u2103\", \"min\": 16, \"max\": 30, \"scale\": 0, \"step\": 1}"
+   },
+   "mode": {
+    "type": "Enum",
+    "values": "{\"range\": [\"cold\", \"hot\", \"wet\", \"wind\"]}"
+   }
+  },
+  "status_range": {
+   "temp_set": {
+    "type": "Integer",
+    "values": "{\"unit\": \"\\u2103\", \"min\": 16, \"max\": 30, \"scale\": 0, \"step\": 1}",
+    "report_type": null
+   },
+   "temp_current": {
+    "type": "Integer",
+    "values": "{\"unit\": \"\\u2103\", \"min\": -7, \"max\": 98, \"scale\": 0, \"step\": 1}",
+    "report_type": null
+   },
+   "mode": {
+    "type": "Enum",
+    "values": "{\"range\": [\"cold\", \"hot\", \"wet\", \"wind\"]}",
+    "report_type": null
+   }
+  }
+ },
+ "csgb8eqhczvjaetl": {
+  "quirk_file": "clkg_csgb8eqhczvjaetl.py",
+  "error": null,
+  "category": "",
+  "local_strategy": {},
+  "function": {},
+  "status_range": {}
+ },
+ "datzwoplui1zao16": {
+  "quirk_file": "tdq_datzwoplui1zao16.py",
+  "error": null,
+  "category": "",
+  "local_strategy": {
+   "20": {
+    "value_convert": "default",
+    "status_code": "temp_unit_convert",
+    "config_item": {
+     "statusFormat": "{\"temp_unit_convert\": \"$\"}",
+     "valueDesc": "{\"range\": [\"c\", \"f\"]}",
+     "valueType": "Enum",
+     "enumMappingMap": {},
+     "pid": "datzwoplui1zao16"
+    }
+   },
+   "27": {
+    "value_convert": "default",
+    "status_code": "temp_current",
+    "config_item": {
+     "statusFormat": "{\"temp_current\": \"$\"}",
+     "valueDesc": "{\"unit\": \"\\u2103\", \"min\": -200, \"max\": 600, \"scale\": 1, \"step\": 1}",
+     "valueType": "Integer",
+     "enumMappingMap": {},
+     "pid": "datzwoplui1zao16"
+    }
+   },
+   "46": {
+    "value_convert": "default",
+    "status_code": "humidity_value",
+    "config_item": {
+     "statusFormat": "{\"humidity_value\": \"$\"}",
+     "valueDesc": "{\"unit\": \"%\", \"min\": 0, \"max\": 100, \"scale\": 0, \"step\": 1}",
+     "valueType": "Integer",
+     "enumMappingMap": {},
+     "pid": "datzwoplui1zao16"
+    }
+   }
+  },
+  "function": {
+   "temp_unit_convert": {
+    "type": "Enum",
+    "values": "{\"range\": [\"c\", \"f\"]}"
+   }
+  },
+  "status_range": {
+   "temp_unit_convert": {
+    "type": "Enum",
+    "values": "{\"range\": [\"c\", \"f\"]}",
+    "report_type": null
+   },
+   "temp_current": {
+    "type": "Integer",
+    "values": "{\"unit\": \"\\u2103\", \"min\": -200, \"max\": 600, \"scale\": 1, \"step\": 1}",
+    "report_type": null
+   },
+   "humidity_value": {
+    "type": "Integer",
+    "values": "{\"unit\": \"%\", \"min\": 0, \"max\": 100, \"scale\": 0, \"step\": 1}",
+    "report_type": null
+   }
+  }
+ },
+ "dft4ebatvon3ha5s": {
+  "quirk_file": "bh_dft4ebatvon3ha5s.py",
+  "error": null,
+  "category": "",
+  "local_strategy": {
+   "4": {
+    "value_convert": "default",
+    "status_code": "temp_setting_quick_c",
+    "config_item": {
+     "statusFormat": "{\"temp_setting_quick_c\": \"$\"}",
+     "valueDesc": "{\"range\": [\"80\", \"85\", \"90\", \"95\", \"100\"]}",
+     "valueType": "Enum",
+     "enumMappingMap": {},
+     "pid": "dft4ebatvon3ha5s"
+    }
+   }
+  },
+  "function": {
+   "temp_setting_quick_c": {
+    "type": "Enum",
+    "values": "{\"range\": [\"80\", \"85\", \"90\", \"95\", \"100\"]}"
+   }
+  },
+  "status_range": {
+   "temp_setting_quick_c": {
+    "type": "Enum",
+    "values": "{\"range\": [\"80\", \"85\", \"90\", \"95\", \"100\"]}",
+    "report_type": null
+   }
+  }
+ },
+ "dune79w7bsu6dg3e": {
+  "quirk_file": "fs_dune79w7bsu6dg3e.py",
+  "error": null,
+  "category": "",
+  "local_strategy": {
+   "4": {
+    "value_convert": "enum",
+    "status_code": "switch_horizontal",
+    "config_item": {
+     "statusFormat": "{\"switch_horizontal\": \"$\"}",
+     "valueDesc": "",
+     "valueType": "",
+     "enumMappingMap": {
+      "0": {
+       "value": false
+      },
+      "1": {
+       "value": true
+      }
+     },
+     "pid": "dune79w7bsu6dg3e"
+    }
+   },
+   "5": {
+    "value_convert": "enum",
+    "status_code": "switch_vertical",
+    "config_item": {
+     "statusFormat": "{\"switch_vertical\": \"$\"}",
+     "valueDesc": "",
+     "valueType": "",
+     "enumMappingMap": {
+      "0": {
+       "value": false
+      },
+      "1": {
+       "value": true
+      }
+     },
+     "pid": "dune79w7bsu6dg3e"
+    }
+   }
+  },
+  "function": {},
+  "status_range": {}
+ },
+ "eyEYwtdx9VhexxLW": {
+  "quirk_file": "cz_eyeywtdx9vhexxlw.py",
+  "error": null,
+  "category": "",
+  "local_strategy": {
+   "5": {
+    "value_convert": "default",
+    "status_code": "cur_power",
+    "config_item": {
+     "statusFormat": "{\"cur_power\": \"$\"}",
+     "valueDesc": "{\"unit\": \"W\", \"min\": 0, \"max\": 50000, \"scale\": 1, \"step\": 1}",
+     "valueType": "Integer",
+     "enumMappingMap": {},
+     "pid": "eyEYwtdx9VhexxLW"
+    }
+   },
+   "6": {
+    "value_convert": "default",
+    "status_code": "cur_voltage",
+    "config_item": {
+     "statusFormat": "{\"cur_voltage\": \"$\"}",
+     "valueDesc": "{\"unit\": \"V\", \"min\": 0, \"max\": 3000, \"scale\": 1, \"step\": 1}",
+     "valueType": "Integer",
+     "enumMappingMap": {},
+     "pid": "eyEYwtdx9VhexxLW"
+    }
+   }
+  },
+  "function": {},
+  "status_range": {
+   "cur_power": {
+    "type": "Integer",
+    "values": "{\"unit\": \"W\", \"min\": 0, \"max\": 50000, \"scale\": 1, \"step\": 1}",
+    "report_type": null
+   },
+   "cur_voltage": {
+    "type": "Integer",
+    "values": "{\"unit\": \"V\", \"min\": 0, \"max\": 3000, \"scale\": 1, \"step\": 1}",
+    "report_type": null
+   }
+  }
+ },
+ "gk0d4i8g5akryd9d": {
+  "quirk_file": "tdq_gk0d4i8g5akryd9d.py",
+  "error": null,
+  "category": "pir",
+  "local_strategy": {
+   "101": {
+    "value_convert": "default",
+    "status_code": "pir",
+    "config_item": {
+     "statusFormat": "{\"pir\": \"$\"}",
+     "valueDesc": "{\"range\": [\"pir\", \"none\"]}",
+     "valueType": "Enum",
+     "enumMappingMap": {},
+     "pid": "gk0d4i8g5akryd9d"
+    }
+   },
+   "102": {
+    "value_convert": "default",
+    "status_code": "battery_state",
+    "config_item": {
+     "statusFormat": "{\"battery_state\": \"$\"}",
+     "valueDesc": "{\"range\": [\"low\", \"middle\", \"high\"]}",
+     "valueType": "Enum",
+     "enumMappingMap": {},
+     "pid": "gk0d4i8g5akryd9d"
+    }
+   }
+  },
+  "function": {},
+  "status_range": {
+   "pir": {
+    "type": "Enum",
+    "values": "{\"range\": [\"pir\", \"none\"]}",
+    "report_type": null
+   },
+   "battery_state": {
+    "type": "Enum",
+    "values": "{\"range\": [\"low\", \"middle\", \"high\"]}",
+    "report_type": null
+   }
+  }
+ },
+ "hw50w7qvxluhslkk": {
+  "quirk_file": "kt_hw50w7qvxluhslkk.py",
+  "error": null,
+  "category": "",
+  "local_strategy": {},
+  "function": {},
+  "status_range": {}
+ },
+ "if6pqia2gbtvqa6l": {
+  "quirk_file": "wk_if6pqia2gbtvqa6l.py",
+  "error": null,
+  "category": "",
+  "local_strategy": {
+   "2": {
+    "value_convert": "default",
+    "status_code": "mode",
+    "config_item": {
+     "statusFormat": "{\"mode\": \"$\"}",
+     "valueDesc": "{\"range\": [\"auto\", \"home\"]}",
+     "valueType": "Enum",
+     "enumMappingMap": {},
+     "pid": "if6pqia2gbtvqa6l"
+    }
+   }
+  },
+  "function": {
+   "mode": {
+    "type": "Enum",
+    "values": "{\"range\": [\"auto\", \"home\"]}"
+   }
+  },
+  "status_range": {
+   "mode": {
+    "type": "Enum",
+    "values": "{\"range\": [\"auto\", \"home\"]}",
+    "report_type": null
+   }
+  }
+ },
+ "m7kacaxrxbxeegfs": {
+  "quirk_file": "wsdcg_m7kacaxrxbxeegfs.py",
+  "error": null,
+  "category": "",
+  "local_strategy": {
+   "101": {
+    "value_convert": "default",
+    "status_code": "ext_temp",
+    "config_item": {
+     "statusFormat": "{\"ext_temp\": \"$\"}",
+     "valueDesc": "{\"unit\": \"\\u2103\", \"min\": -200, \"max\": 1000, \"scale\": 1, \"step\": 1}",
+     "valueType": "Integer",
+     "enumMappingMap": {},
+     "pid": "m7kacaxrxbxeegfs"
+    }
+   }
+  },
+  "function": {},
+  "status_range": {
+   "ext_temp": {
+    "type": "Integer",
+    "values": "{\"unit\": \"\\u2103\", \"min\": -200, \"max\": 1000, \"scale\": 1, \"step\": 1}",
+    "report_type": null
+   }
+  }
+ },
+ "ma3oq4onxxwg91ky": {
+  "quirk_file": "cs_ma3oq4onxxwg91ky.py",
+  "error": null,
+  "category": "",
+  "local_strategy": {
+   "19": {
+    "value_convert": "default",
+    "status_code": "fault",
+    "config_item": {
+     "statusFormat": "{\"fault\": \"$\"}",
+     "valueDesc": "{\"label\": [\"E1\", \"E2\", \"tankfull\"]}",
+     "valueType": "Bitmap",
+     "enumMappingMap": {},
+     "pid": "ma3oq4onxxwg91ky"
+    }
+   }
+  },
+  "function": {},
+  "status_range": {
+   "fault": {
+    "type": "Bitmap",
+    "values": "{\"label\": [\"E1\", \"E2\", \"tankfull\"]}",
+    "report_type": null
+   }
+  }
+ },
+ "ndvina39gbq8x0jk": {
+  "quirk_file": "cz_ndvina39gbq8x0jk.py",
+  "error": null,
+  "category": "",
+  "local_strategy": {
+   "40": {
+    "value_convert": "default",
+    "status_code": "light_mode",
+    "config_item": {
+     "statusFormat": "{\"light_mode\": \"$\"}",
+     "valueDesc": "{\"range\": [\"relay\", \"pos\", \"none\", \"on\"]}",
+     "valueType": "Enum",
+     "enumMappingMap": {},
+     "pid": "ndvina39gbq8x0jk"
+    }
+   }
+  },
+  "function": {
+   "light_mode": {
+    "type": "Enum",
+    "values": "{\"range\": [\"relay\", \"pos\", \"none\", \"on\"]}"
+   }
+  },
+  "status_range": {
+   "light_mode": {
+    "type": "Enum",
+    "values": "{\"range\": [\"relay\", \"pos\", \"none\", \"on\"]}",
+    "report_type": null
+   }
+  }
+ },
+ "nfq1essvr99qsvvd": {
+  "quirk_file": "cl_nfq1essvr99qsvvd.py",
+  "error": null,
+  "category": "",
+  "local_strategy": {},
+  "function": {},
+  "status_range": {}
+ },
+ "p6sqiuesvhmhvv4f": {
+  "quirk_file": "tdq_p6sqiuesvhmhvv4f.py",
+  "error": null,
+  "category": "mcs",
+  "local_strategy": {
+   "101": {
+    "value_convert": "default",
+    "status_code": "doorcontact_state",
+    "config_item": {
+     "statusFormat": "{\"doorcontact_state\": \"$\"}",
+     "valueDesc": "{}",
+     "valueType": "Boolean",
+     "enumMappingMap": {},
+     "pid": "p6sqiuesvhmhvv4f"
+    }
+   },
+   "102": {
+    "value_convert": "default",
+    "status_code": "battery_state",
+    "config_item": {
+     "statusFormat": "{\"battery_state\": \"$\"}",
+     "valueDesc": "{\"range\": [\"low\", \"middle\", \"high\"]}",
+     "valueType": "Enum",
+     "enumMappingMap": {},
+     "pid": "p6sqiuesvhmhvv4f"
+    }
+   }
+  },
+  "function": {},
+  "status_range": {
+   "doorcontact_state": {
+    "type": "Boolean",
+    "values": "{}",
+    "report_type": null
+   },
+   "battery_state": {
+    "type": "Enum",
+    "values": "{\"range\": [\"low\", \"middle\", \"high\"]}",
+    "report_type": null
+   }
+  }
+ },
+ "qajfz5x1lqej5xxw": {
+  "quirk_file": "dgnbj_qajfz5x1lqej5xxw.py",
+  "error": null,
+  "category": "",
+  "local_strategy": {
+   "102": {
+    "value_convert": "default",
+    "status_code": "ph_current",
+    "config_item": {
+     "statusFormat": "{\"ph_current\": \"$\"}",
+     "valueDesc": "{\"unit\": \"ph\", \"min\": 0, \"max\": 1400, \"scale\": 2, \"step\": 1}",
+     "valueType": "Integer",
+     "enumMappingMap": {},
+     "pid": "qajfz5x1lqej5xxw"
+    }
+   }
+  },
+  "function": {},
+  "status_range": {
+   "ph_current": {
+    "type": "Integer",
+    "values": "{\"unit\": \"ph\", \"min\": 0, \"max\": 1400, \"scale\": 2, \"step\": 1}",
+    "report_type": null
+   }
+  }
+ },
+ "qxJSyTLEtX5WrzA9": {
+  "quirk_file": "cz_qxjsytletx5wrza9.py",
+  "error": null,
+  "category": "",
+  "local_strategy": {
+   "5": {
+    "value_convert": "default",
+    "status_code": "cur_power",
+    "config_item": {
+     "statusFormat": "{\"cur_power\": \"$\"}",
+     "valueDesc": "{\"unit\": \"W\", \"min\": 0, \"max\": 50000, \"scale\": 1, \"step\": 1}",
+     "valueType": "Integer",
+     "enumMappingMap": {},
+     "pid": "qxJSyTLEtX5WrzA9"
+    }
+   },
+   "6": {
+    "value_convert": "default",
+    "status_code": "cur_voltage",
+    "config_item": {
+     "statusFormat": "{\"cur_voltage\": \"$\"}",
+     "valueDesc": "{\"unit\": \"V\", \"min\": 0, \"max\": 3000, \"scale\": 1, \"step\": 1}",
+     "valueType": "Integer",
+     "enumMappingMap": {},
+     "pid": "qxJSyTLEtX5WrzA9"
+    }
+   }
+  },
+  "function": {},
+  "status_range": {
+   "cur_power": {
+    "type": "Integer",
+    "values": "{\"unit\": \"W\", \"min\": 0, \"max\": 50000, \"scale\": 1, \"step\": 1}",
+    "report_type": null
+   },
+   "cur_voltage": {
+    "type": "Integer",
+    "values": "{\"unit\": \"V\", \"min\": 0, \"max\": 3000, \"scale\": 1, \"step\": 1}",
+    "report_type": null
+   }
+  }
+ },
+ "tjvnxyobs3upidjo": {
+  "quirk_file": "qn_tjvnxyobs3upidjo.py",
+  "error": null,
+  "category": "",
+  "local_strategy": {
+   "4": {
+    "value_convert": "default",
+    "status_code": "mode",
+    "config_item": {
+     "statusFormat": "{\"mode\": \"$\"}",
+     "valueDesc": "{\"range\": [\"eco\", \"off\"]}",
+     "valueType": "Enum",
+     "enumMappingMap": {},
+     "pid": "tjvnxyobs3upidjo"
+    }
+   }
+  },
+  "function": {
+   "mode": {
+    "type": "Enum",
+    "values": "{\"range\": [\"eco\", \"off\"]}"
+   }
+  },
+  "status_range": {
+   "mode": {
+    "type": "Enum",
+    "values": "{\"range\": [\"eco\", \"off\"]}",
+    "report_type": null
+   }
+  }
+ },
+ "ucf09xuve67adcp4": {
+  "quirk_file": "wk_ucf09xuve67adcp4.py",
+  "error": null,
+  "category": "",
+  "local_strategy": {
+   "2": {
+    "value_convert": "default",
+    "status_code": "mode",
+    "config_item": {
+     "statusFormat": "{\"mode\": \"$\"}",
+     "valueDesc": "{\"range\": [\"auto\", \"comfort\", \"eco\", \"holiday\"]}",
+     "valueType": "Enum",
+     "enumMappingMap": {},
+     "pid": "ucf09xuve67adcp4"
+    }
+   }
+  },
+  "function": {
+   "mode": {
+    "type": "Enum",
+    "values": "{\"range\": [\"auto\", \"comfort\", \"eco\", \"holiday\"]}"
+   }
+  },
+  "status_range": {
+   "mode": {
+    "type": "Enum",
+    "values": "{\"range\": [\"auto\", \"comfort\", \"eco\", \"holiday\"]}",
+    "report_type": null
+   }
+  }
+ },
+ "uhtamgih7kkdcqtx": {
+  "quirk_file": "cs_uhtamgih7kkdcqtx.py",
+  "error": null,
+  "category": "",
+  "local_strategy": {
+   "3": {
+    "value_convert": "default",
+    "status_code": "humidity_indoor",
+    "config_item": {
+     "statusFormat": "{\"humidity_indoor\": \"$\"}",
+     "valueDesc": "{\"unit\": \"%\", \"min\": 0, \"max\": 100, \"scale\": 0, \"step\": 1}",
+     "valueType": "Integer",
+     "enumMappingMap": {},
+     "pid": "uhtamgih7kkdcqtx"
+    }
+   },
+   "103": {
+    "value_convert": "default",
+    "status_code": "temp_indoor",
+    "config_item": {
+     "statusFormat": "{\"temp_indoor\": \"$\"}",
+     "valueDesc": "{\"unit\": \"\\u00b0C\", \"min\": -20, \"max\": 60, \"scale\": 0, \"step\": 1}",
+     "valueType": "Integer",
+     "enumMappingMap": {},
+     "pid": "uhtamgih7kkdcqtx"
+    }
+   }
+  },
+  "function": {},
+  "status_range": {
+   "humidity_indoor": {
+    "type": "Integer",
+    "values": "{\"unit\": \"%\", \"min\": 0, \"max\": 100, \"scale\": 0, \"step\": 1}",
+    "report_type": null
+   },
+   "temp_indoor": {
+    "type": "Integer",
+    "values": "{\"unit\": \"\\u00b0C\", \"min\": -20, \"max\": 60, \"scale\": 0, \"step\": 1}",
+    "report_type": null
+   }
+  }
+ },
+ "wfkzyy0evslzsmoi": {
+  "quirk_file": "cwwsq_wfkzyy0evslzsmoi.py",
+  "error": null,
+  "category": "",
+  "local_strategy": {
+   "15": {
+    "value_convert": "default",
+    "status_code": "feed_report",
+    "config_item": {
+     "statusFormat": "{\"feed_report\": \"$\"}",
+     "valueDesc": "{\"unit\": \"\", \"min\": 0, \"max\": 20, \"scale\": 0, \"step\": 1}",
+     "valueType": "Integer",
+     "enumMappingMap": {},
+     "pid": "wfkzyy0evslzsmoi"
+    }
+   }
+  },
+  "function": {},
+  "status_range": {
+   "feed_report": {
+    "type": "Integer",
+    "values": "{\"unit\": \"\", \"min\": 0, \"max\": 20, \"scale\": 0, \"step\": 1}",
+    "report_type": "sum"
+   }
+  }
+ },
+ "wifvoilfrqeo6hvu": {
+  "quirk_file": "cz_wifvoilfrqeo6hvu.py",
+  "error": null,
+  "category": "",
+  "local_strategy": {
+   "3": {
+    "value_convert": "default",
+    "status_code": "add_ele",
+    "config_item": {
+     "statusFormat": "{\"add_ele\": \"$\"}",
+     "valueDesc": "{\"unit\": \"kWh\", \"min\": 0, \"max\": 500000, \"scale\": 3, \"step\": 1}",
+     "valueType": "Integer",
+     "enumMappingMap": {},
+     "pid": "wifvoilfrqeo6hvu"
+    }
+   },
+   "5": {
+    "value_convert": "default",
+    "status_code": "cur_power",
+    "config_item": {
+     "statusFormat": "{\"cur_power\": \"$\"}",
+     "valueDesc": "{\"unit\": \"W\", \"min\": 0, \"max\": 50000, \"scale\": 1, \"step\": 1}",
+     "valueType": "Integer",
+     "enumMappingMap": {},
+     "pid": "wifvoilfrqeo6hvu"
+    }
+   },
+   "6": {
+    "value_convert": "default",
+    "status_code": "cur_voltage",
+    "config_item": {
+     "statusFormat": "{\"cur_voltage\": \"$\"}",
+     "valueDesc": "{\"unit\": \"V\", \"min\": 0, \"max\": 5000, \"scale\": 1, \"step\": 1}",
+     "valueType": "Integer",
+     "enumMappingMap": {},
+     "pid": "wifvoilfrqeo6hvu"
+    }
+   }
+  },
+  "function": {},
+  "status_range": {
+   "add_ele": {
+    "type": "Integer",
+    "values": "{\"unit\": \"kWh\", \"min\": 0, \"max\": 500000, \"scale\": 3, \"step\": 1}",
+    "report_type": "sum"
+   },
+   "cur_power": {
+    "type": "Integer",
+    "values": "{\"unit\": \"W\", \"min\": 0, \"max\": 50000, \"scale\": 1, \"step\": 1}",
+    "report_type": null
+   },
+   "cur_voltage": {
+    "type": "Integer",
+    "values": "{\"unit\": \"V\", \"min\": 0, \"max\": 5000, \"scale\": 1, \"step\": 1}",
+    "report_type": null
+   }
+  }
+ },
+ "x3o8epevyeo3z3oa": {
+  "quirk_file": "tdq_x3o8epevyeo3z3oa.py",
+  "error": null,
+  "category": "",
+  "local_strategy": {
+   "20": {
+    "value_convert": "default",
+    "status_code": "temp_unit_convert",
+    "config_item": {
+     "statusFormat": "{\"temp_unit_convert\": \"$\"}",
+     "valueDesc": "{\"range\": [\"c\", \"f\"]}",
+     "valueType": "Enum",
+     "enumMappingMap": {},
+     "pid": "x3o8epevyeo3z3oa"
+    }
+   },
+   "27": {
+    "value_convert": "default",
+    "status_code": "temp_current",
+    "config_item": {
+     "statusFormat": "{\"temp_current\": \"$\"}",
+     "valueDesc": "{\"unit\": \"\\u2103\", \"min\": -200, \"max\": 600, \"scale\": 1, \"step\": 1}",
+     "valueType": "Integer",
+     "enumMappingMap": {},
+     "pid": "x3o8epevyeo3z3oa"
+    }
+   },
+   "46": {
+    "value_convert": "default",
+    "status_code": "humidity_value",
+    "config_item": {
+     "statusFormat": "{\"humidity_value\": \"$\"}",
+     "valueDesc": "{\"unit\": \"%\", \"min\": 0, \"max\": 100, \"scale\": 0, \"step\": 1}",
+     "valueType": "Integer",
+     "enumMappingMap": {},
+     "pid": "x3o8epevyeo3z3oa"
+    }
+   },
+   "101": {
+    "value_convert": "default",
+    "status_code": "battery_state",
+    "config_item": {
+     "statusFormat": "{\"battery_state\": \"$\"}",
+     "valueDesc": "{\"range\": [\"low\", \"middle\", \"high\"]}",
+     "valueType": "Enum",
+     "enumMappingMap": {},
+     "pid": "x3o8epevyeo3z3oa"
+    }
+   }
+  },
+  "function": {
+   "temp_unit_convert": {
+    "type": "Enum",
+    "values": "{\"range\": [\"c\", \"f\"]}"
+   }
+  },
+  "status_range": {
+   "temp_unit_convert": {
+    "type": "Enum",
+    "values": "{\"range\": [\"c\", \"f\"]}",
+    "report_type": null
+   },
+   "temp_current": {
+    "type": "Integer",
+    "values": "{\"unit\": \"\\u2103\", \"min\": -200, \"max\": 600, \"scale\": 1, \"step\": 1}",
+    "report_type": null
+   },
+   "humidity_value": {
+    "type": "Integer",
+    "values": "{\"unit\": \"%\", \"min\": 0, \"max\": 100, \"scale\": 0, \"step\": 1}",
+    "report_type": null
+   },
+   "battery_state": {
+    "type": "Enum",
+    "values": "{\"range\": [\"low\", \"middle\", \"high\"]}",
+    "report_type": null
+   }
+  }
+ },
+ "xeagimantb7d7apb": {
+  "quirk_file": "tdq_xeagimantb7d7apb.py",
+  "error": null,
+  "category": "",
+  "local_strategy": {
+   "20": {
+    "value_convert": "default",
+    "status_code": "temp_unit_convert",
+    "config_item": {
+     "statusFormat": "{\"temp_unit_convert\": \"$\"}",
+     "valueDesc": "{\"range\": [\"c\", \"f\"]}",
+     "valueType": "Enum",
+     "enumMappingMap": {},
+     "pid": "xeagimantb7d7apb"
+    }
+   },
+   "27": {
+    "value_convert": "default",
+    "status_code": "temp_current",
+    "config_item": {
+     "statusFormat": "{\"temp_current\": \"$\"}",
+     "valueDesc": "{\"unit\": \"\\u2103\", \"min\": -200, \"max\": 600, \"scale\": 1, \"step\": 1}",
+     "valueType": "Integer",
+     "enumMappingMap": {},
+     "pid": "xeagimantb7d7apb"
+    }
+   },
+   "46": {
+    "value_convert": "default",
+    "status_code": "humidity_value",
+    "config_item": {
+     "statusFormat": "{\"humidity_value\": \"$\"}",
+     "valueDesc": "{\"unit\": \"%\", \"min\": 0, \"max\": 100, \"scale\": 0, \"step\": 1}",
+     "valueType": "Integer",
+     "enumMappingMap": {},
+     "pid": "xeagimantb7d7apb"
+    }
+   },
+   "101": {
+    "value_convert": "default",
+    "status_code": "battery_state",
+    "config_item": {
+     "statusFormat": "{\"battery_state\": \"$\"}",
+     "valueDesc": "{\"range\": [\"low\", \"middle\", \"high\"]}",
+     "valueType": "Enum",
+     "enumMappingMap": {},
+     "pid": "xeagimantb7d7apb"
+    }
+   },
+   "102": {
+    "value_convert": "default",
+    "status_code": "temp_current",
+    "config_item": {
+     "statusFormat": "{\"temp_current\": \"$\"}",
+     "valueDesc": "{\"unit\": \"\\u2103\", \"min\": -200, \"max\": 600, \"scale\": 1, \"step\": 1}",
+     "valueType": "Integer",
+     "enumMappingMap": {},
+     "pid": "xeagimantb7d7apb"
+    }
+   },
+   "103": {
+    "value_convert": "default",
+    "status_code": "humidity_value",
+    "config_item": {
+     "statusFormat": "{\"humidity_value\": \"$\"}",
+     "valueDesc": "{\"unit\": \"%\", \"min\": 0, \"max\": 100, \"scale\": 0, \"step\": 1}",
+     "valueType": "Integer",
+     "enumMappingMap": {},
+     "pid": "xeagimantb7d7apb"
+    }
+   },
+   "104": {
+    "value_convert": "default",
+    "status_code": "battery_state",
+    "config_item": {
+     "statusFormat": "{\"battery_state\": \"$\"}",
+     "valueDesc": "{\"range\": [\"low\", \"middle\", \"high\"]}",
+     "valueType": "Enum",
+     "enumMappingMap": {},
+     "pid": "xeagimantb7d7apb"
+    }
+   }
+  },
+  "function": {
+   "temp_unit_convert": {
+    "type": "Enum",
+    "values": "{\"range\": [\"c\", \"f\"]}"
+   }
+  },
+  "status_range": {
+   "temp_unit_convert": {
+    "type": "Enum",
+    "values": "{\"range\": [\"c\", \"f\"]}",
+    "report_type": null
+   },
+   "temp_current": {
+    "type": "Integer",
+    "values": "{\"unit\": \"\\u2103\", \"min\": -200, \"max\": 600, \"scale\": 1, \"step\": 1}",
+    "report_type": null
+   },
+   "humidity_value": {
+    "type": "Integer",
+    "values": "{\"unit\": \"%\", \"min\": 0, \"max\": 100, \"scale\": 0, \"step\": 1}",
+    "report_type": null
+   },
+   "battery_state": {
+    "type": "Enum",
+    "values": "{\"range\": [\"low\", \"middle\", \"high\"]}",
+    "report_type": null
+   }
+  }
+ },
+ "xwv3jifdbhbolgh3": {
+  "quirk_file": "fs_xwv3jifdbhbolgh3.py",
+  "error": null,
+  "category": "",
+  "local_strategy": {
+   "2": {
+    "value_convert": "default",
+    "status_code": "mode",
+    "config_item": {
+     "statusFormat": "{\"mode\": \"$\"}",
+     "valueDesc": "{\"range\": [\"normal\", \"nature\", \"sleep\"]}",
+     "valueType": "Enum",
+     "enumMappingMap": {},
+     "pid": "xwv3jifdbhbolgh3"
+    }
+   },
+   "22": {
+    "value_convert": "default",
+    "status_code": "countdown_set",
+    "config_item": {
+     "statusFormat": "{\"countdown_set\": \"$\"}",
+     "valueDesc": "{\"range\": [\"cancel\", \"1h\", \"2h\", \"3h\", \"4h\", \"5h\", \"6h\", \"7h\", \"8h\", \"9h\", \"10h\", \"11h\", \"12h\"]}",
+     "valueType": "Enum",
+     "enumMappingMap": {},
+     "pid": "xwv3jifdbhbolgh3"
+    }
+   }
+  },
+  "function": {
+   "mode": {
+    "type": "Enum",
+    "values": "{\"range\": [\"normal\", \"nature\", \"sleep\"]}"
+   },
+   "countdown_set": {
+    "type": "Enum",
+    "values": "{\"range\": [\"cancel\", \"1h\", \"2h\", \"3h\", \"4h\", \"5h\", \"6h\", \"7h\", \"8h\", \"9h\", \"10h\", \"11h\", \"12h\"]}"
+   }
+  },
+  "status_range": {
+   "mode": {
+    "type": "Enum",
+    "values": "{\"range\": [\"normal\", \"nature\", \"sleep\"]}",
+    "report_type": null
+   },
+   "countdown_set": {
+    "type": "Enum",
+    "values": "{\"range\": [\"cancel\", \"1h\", \"2h\", \"3h\", \"4h\", \"5h\", \"6h\", \"7h\", \"8h\", \"9h\", \"10h\", \"11h\", \"12h\"]}",
+    "report_type": null
+   }
+  }
+ },
+ "xyakonle1azq2xgn": {
+  "quirk_file": "cl_xyakonle1azq2xgn.py",
+  "error": null,
+  "category": "",
+  "local_strategy": {},
+  "function": {},
+  "status_range": {}
+ }
+}
