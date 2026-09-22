@@ -19,12 +19,12 @@ def test_light_realtime_and_commands():
     assert props["switch_led"]["role"] == "on" and props["brightness"]["max"] == 100
     outs = d.handle(0, Connected())
     assert outs[0].desc is d.descriptor
-    outs = d.handle(1, Message("state", {"dps": {"20": True, "22": 1000, "23": 0}}))
+    outs = d.handle(1, Message("state", {"20": True, "22": 1000, "23": 0}))
     vals = {o.prop: o.value for o in outs if isinstance(o, Value)}
     assert vals["available"] is True and vals["switch_led"] is True and vals["brightness"] == 100
-    # active delta wrapped as the bridge does; only the changed prop is emitted
-    assert d.handle(2, Message("active", {"data": {"dps": {"22": 505}}})) == [Value("brightness", 50)]
-    assert d.handle(3, Message("passive", {"dps": {"22": 505}})) == []          # no change, no repeat
+    # active delta; only the changed prop is emitted
+    assert d.handle(2, Message("active", {"22": 505})) == [Value("brightness", 50)]
+    assert d.handle(3, Message("passive", {"22": 505})) == []          # no change, no repeat
     (out,) = d.handle(4, Command("brightness", 50))
     assert isinstance(out, SendMessage) and out.json["dps"]["22"] == 507 and out.json["dps"]["20"] is True   # 50% -> 128/255 -> 507
     assert d.handle(5, Command("brightness", 101))[0].code == "out_of_range"

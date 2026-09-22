@@ -1,17 +1,18 @@
-"""Sans-IO MQTT mapping for  rustuya-bridge <-> tuya2ildevice <-> il-ha.
+"""Sans-IO IL mapping for tuya2ildevice <-> il-ha.
 
-    bridge broker                          this module                          il broker
-    rustuya/event/{type}/{id}   -->  Hub.on_bridge()  -->  TuyaDriver  -->  il/<id>, il/<id>/<prop>, ...
-    rustuya/command  <--  set/get    Hub.on_il()      <--  il/<id>/<prop>/set
+    device input (Connected/Disconnected/Message)   -->  Hub.on_bridge_message()  -->  TuyaDriver  -->  il/<id>, ...
+    rustuya/command  <--  BridgeCommand              <--  Hub.on_il()             <--  il/<id>/<prop>/set
 
-`Hub` owns one `TuyaDriver` per device and speaks the bridge's topics on one side and il-mqtt.md on the other.
-It performs no I/O: every method takes what was received and returns `Publish`es. Each `Publish` and subscription
-names its `side` ("bridge" or "il"), so the host may use two connections or one broker for both.
+`Hub` owns one `TuyaDriver` per device and speaks il-mqtt.md on the IL side. On the bridge side it takes
+already-decoded input (`Connected`/`Disconnected`/`Message`, from `io.py`) instead of a raw topic/payload: it has
+no idea rustuya-bridge's topics are configurable, or what they currently are — that's the host's job (see
+`tuya2ildevice.host` and, for the real rustuya-bridge wire format, `rustuya-local`'s bridge client, which uses
+`pyrustuyabridge` to interpret the bridge's own topic/payload templates correctly). It performs no I/O: every
+method takes what was received and returns `Publish`/`BridgeCommand`/`Schedule`/`Unschedule`.
 """
 from __future__ import annotations
 
 import json
-import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -19,7 +20,7 @@ from .driver import TuyaDriver
 from .io import (Absent, CancelTimer, Command, Connected, Descriptor, Disconnected, Event, Message, Reject, SendMessage,
                  SetTimer, Timer, Value)
 
-BRIDGE, IL = "bridge", "il"
+IL = "il"
 
 
 @dataclass(frozen=True)
@@ -52,72 +53,13 @@ class Unschedule:
     name: str
 
 
-# --- rustuya-bridge side ---------------------------------------------------------------------------
-class BridgeTopics:
-    """Topic layout of rustuya-bridge (defaults; pass the bridge's own templates if they were changed).
-
-    `event`: ``{root}/event/{type}/{id}`` (a ``{dp}`` in it means single-DP mode: the payload is one value).
-    `message`: ``{root}/{level}/{id}``; ``error`` carries ``{"errorCode": 0}`` for *connected*, non-zero for a fault.
-    """
-
-    def __init__(self, root: str = "rustuya", event: str | None = None, message: str | None = None,
-                 command: str | None = None):
-        self.root = root
-        self.event = (event or "{root}/event/{type}/{id}").replace("{root}", root)
-        self.message = (message or "{root}/{level}/{id}").replace("{root}", root)
-        self.command = (command or "{root}/command").replace("{root}", root)
-        self._event_re = self._regex(self.event, {"type": r"(?P<type>active|passive|state)"})
-        self._error_re = self._regex(self.message.replace("{level}", "error"), {})
-
-    @classmethod
-    def from_config(cls, config: dict, root: str = "rustuya") -> "BridgeTopics":
-        """The layout a running bridge announces (its retained ``{root}/bridge/config``: ``mqtt_root_topic``,
-        ``mqtt_event_topic``, ``mqtt_message_topic``, ``mqtt_command_topic``). What the bridge says wins over `root`."""
-        return cls(config.get("mqtt_root_topic") or root, event=config.get("mqtt_event_topic"),
-                   message=config.get("mqtt_message_topic"), command=config.get("mqtt_command_topic"))
-
-    @staticmethod
-    def _regex(template: str, special: dict[str, str]) -> re.Pattern:
-        out, pos = "", 0
-        for m in re.finditer(r"\{(\w+)\}", template):
-            out += re.escape(template[pos:m.start()])
-            name = m.group(1)
-            out += special.get(name, f"(?P<{name}>[^/]+)")
-            pos = m.end()
-        return re.compile(out + re.escape(template[pos:]) + r"\Z")
-
-    def subscriptions(self) -> list[str]:
-        wild = lambda t: re.sub(r"\{\w+\}", "+", t)
-        return [wild(self.event), wild(self.message.replace("{level}", "error"))]
-
-    def parse(self, topic: str, payload: bytes | str, retained: bool) -> tuple[str, Any] | None:
-        """(device id, driver input) for an event or an error message, else None."""
-        if isinstance(payload, bytes):
-            payload = payload.decode("utf-8", "replace")
-        if m := self._event_re.match(topic):
-            g = m.groupdict()
-            if g["type"] != "state" and retained:
-                return None                                   # a replayed delta is not a new event
-            try:
-                body: Any = json.loads(payload)
-            except ValueError:
-                body = payload
-            if g.get("dp"):                                   # single-DP mode
-                body = {"dps": {g["dp"]: body}}
-            return g["id"], Message(g["type"], body)
-        if m := self._error_re.match(topic):
-            try:
-                code = json.loads(payload).get("errorCode")
-            except (ValueError, AttributeError):
-                return None
-            return m.group("id"), (Connected() if code == 0 else Disconnected())
-        return None
-
-    def set(self, device_id: str, dps: dict) -> Publish:
-        return Publish(BRIDGE, self.command, json.dumps({"action": "set", "id": device_id, "dps": dps}), False, 1)
-
-    def get(self, device_id: str) -> Publish:
-        return Publish(BRIDGE, self.command, json.dumps({"action": "get", "id": device_id}), False, 1)
+@dataclass(frozen=True)
+class BridgeCommand:
+    """Ask the host to tell the bridge to read or write a device. Abstract on purpose: rendering this into an
+    actual rustuya-bridge topic/payload (its command template is configurable) is the host's job, not Hub's."""
+    device_id: str
+    action: str                            # "get" | "set"
+    dps: dict[str, Any] | None = None
 
 
 # --- il-mqtt.md side -------------------------------------------------------------------------------
@@ -177,11 +119,9 @@ def decode_write(ptype: str, payload: str) -> Any:
 # --- the hub ---------------------------------------------------------------------------------------
 class Hub:
     """One driver per Tuya device id. `devices`: tuyadevices.json entries. Hosts call `start()` once, then feed
-    `on_bridge` / `on_il` and execute the returned `Publish`es. `now` is whatever clock the host reads."""
+    `on_bridge_message` / `on_il` and execute the returned outputs. `now` is whatever clock the host reads."""
 
-    def __init__(self, devices: list[dict], *, bridge: BridgeTopics | None = None, il: IlTopics | None = None,
-                 **driver_kwargs: Any):
-        self.bridge = bridge or BridgeTopics()
+    def __init__(self, devices: list[dict], *, il: IlTopics | None = None, **driver_kwargs: Any):
         self.il = il or IlTopics()
         self._devices = {d["id"]: d for d in devices}
         self._kw = driver_kwargs
@@ -214,7 +154,7 @@ class Hub:
         pubs += self._il_pubs(i, new.describe())
         if old is not None and old.linked:
             new.handle(0, Connected())
-            pubs.append(self.bridge.get(i))
+            pubs.append(BridgeCommand(i, "get"))
         self._devices[i] = device
         self.drivers[i] = new
         return pubs
@@ -249,14 +189,13 @@ class Hub:
             pubs += self._il_pubs(i, new.describe())
             if old.linked:
                 new.handle(0, Connected())
-                pubs.append(self.bridge.get(i))
+                pubs.append(BridgeCommand(i, "get"))
             self.drivers[i] = new
         self._kw = kw
         return pubs
 
     def subscriptions(self) -> list[Subscribe]:
-        return [*(Subscribe(BRIDGE, t) for t in self.bridge.subscriptions()),
-                Subscribe(IL, self.il.set_subscription())]
+        return [Subscribe(IL, self.il.set_subscription())]
 
     def presence(self, online: bool) -> Publish:
         """M-12. Register `presence(False)` as the Last Will on the il connection."""
@@ -272,14 +211,19 @@ class Hub:
     def stop(self) -> list[Publish]:
         return [self.presence(False)]
 
-    def on_bridge(self, now: float, topic: str, payload: bytes | str, retained: bool = False) -> list:
-        parsed = self.bridge.parse(topic, payload, retained)
-        if parsed is None or parsed[0] not in self.drivers:
+    def on_bridge_message(self, now: float, device_id: str, inp: Connected | Disconnected | Message,
+                           retained: bool = False) -> list:
+        """`inp` is already decoded (see `io.py`) — the host (not Hub) owns turning a raw bridge MQTT message into
+        one of these, since rustuya-bridge's topics/payload template are configurable and interpreting them
+        correctly needs `pyrustuyabridge`, not a hand-rolled parser."""
+        d = self.drivers.get(device_id)
+        if d is None:
             return []
-        i, inp = parsed
-        pubs = self._il_pubs(i, self.drivers[i].handle(now, inp))
+        if isinstance(inp, Message) and inp.channel != "state" and retained:
+            return []                                             # a replayed delta is not a new event (M-9)
+        pubs = self._il_pubs(device_id, d.handle(now, inp))
         if isinstance(inp, Connected):
-            pubs.append(self.bridge.get(i))                      # ask for the full state right after connecting
+            pubs.append(BridgeCommand(device_id, "get"))          # ask for the full state right after connecting
         return pubs
 
     def on_timer(self, now: float, device_id: str, name: str) -> list:
@@ -318,5 +262,5 @@ class Hub:
             elif isinstance(o, CancelTimer):
                 pubs.append(Unschedule(id, o.name))
             elif isinstance(o, SendMessage) and o.channel == "set":
-                pubs.append(self.bridge.set(id, o.json["dps"]))
+                pubs.append(BridgeCommand(id, "set", o.json["dps"]))
         return pubs

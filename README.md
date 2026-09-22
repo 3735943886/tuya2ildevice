@@ -17,14 +17,15 @@ from tuya2ildevice import TuyaDriver, Connected, Message, Command, descriptor_of
 descriptor_of(device)                 # just the ildevice descriptor of a tuyadevices.json entry
 d = TuyaDriver(device)                # the state machine (il.md section 8)
 d.handle(now, Connected())            # -> [Descriptor]
-d.handle(now, Message("active", {"data": {"dps": {"1": True}}}))   # -> [Value(...), Event(...)]
+d.handle(now, Message("active", {"1": True}))   # -> [Value(...), Event(...)]
 d.handle(now, Command("switch_1", "off"))    # -> [SendMessage("set", {"dps": {"1": False}})]  or  [Reject(...)]
 ```
 
 ## Packets and commands
 
 - `Message(channel, json)`: `active` (device push: fires events, accumulates `add_ele`-style deltas) or `passive` /
-  `state` (readback, snapshot: values only). Payload: `{"dps":{}}`, `{"data":{"dps":{}}}` or bare `{"1":true}`.
+  `state` (readback, snapshot: values only). `json` is a flat `{dp: value}` map (the host has already decoded whatever
+  the bridge's own wire payload looked like — see `Hub.on_bridge_message` below).
 - `Command(prop, value)` is checked as il.md section 5 says before anything is sent; failures come back as `Reject`.
   Values convert as in Home Assistant core (brightness goes through 0..255; cover position is reversed unless
   `control_back_mode` is `back`), so a written value can differ slightly from what is read back.
@@ -76,23 +77,34 @@ control, set-position and position dps; a snapshot never starts motion. Timers c
 `Schedule` (`Hub`); the host calls back with `Timer` / `hub.on_timer(now, id, name)`. Loading a user's `.py` file is the
 host's job; the code runs in-process.
 
-## rustuya-bridge <-> tuya2ildevice <-> an IL host over MQTT
+## tuya2ildevice <-> an IL host over MQTT
 
-`Hub` ([mqtt.py](src/tuya2ildevice/mqtt.py)) owns one driver per device and maps both sides. Its methods take what was
-received and return `Publish(side, topic, payload, retain, qos)`; the host only executes them.
-`tuya2ildevice.host` is the host: `Runner` drives a `Hub` on two transports (`MqttTransport` over paho, or the in-process
-`InProcessTransport`), keeps the Last Will presence (M-12), reconnects, adds/removes devices while running
-(`set_device`, `remove_device`, `sync_devices`) and follows rustuya-manager's `tuyadevices.json` (`DeviceWatcher`).
-`read_bridge_config` + `BridgeTopics.from_config` take the topic layout the bridge announces on `{root}/bridge/config`.
+`Hub` ([mqtt.py](src/tuya2ildevice/mqtt.py)) owns one driver per device and maps il-mqtt.md on the IL side. On the
+bridge side it takes already-decoded input, not a raw topic/payload: `on_bridge_message(now, device_id, inp,
+retained=False)` where `inp` is `Connected()` / `Disconnected()` / `Message(channel, dps)`, and its writes/reads to
+the bridge come out as abstract `BridgeCommand(device_id, action, dps)` — Hub has no idea rustuya-bridge's own MQTT
+topics exist, let alone that they're configurable. Rendering `BridgeCommand` into a real topic+payload, and turning
+a real bridge MQTT message into `Connected`/`Disconnected`/`Message`, is the **host's** job — correctly, that means
+using [pyrustuyabridge](https://github.com/3735943886/rustuya-bridge)'s bindings (`match_topic`, `render_template`,
+`tpl_to_wildcard`, `parse_seed_dps`), which mirror the real bridge's own template/payload parsing, not a hand-rolled
+one. [rustuya-local](https://github.com/3735943886/rustuya-local) is that host for a real rustuya-bridge; its
+`bridge_client` module is the reference implementation.
 
-| direction | topic |
+`tuya2ildevice.host` is the *IL-side* host: `Runner` drives a `Hub` on one IL transport (`MqttTransport` over paho, or
+the in-process `InProcessTransport`), keeps the Last Will presence (M-12), reconnects, adds/removes devices while
+running (`set_device`, `remove_device`, `sync_devices`), follows rustuya-manager's `tuyadevices.json`
+(`DeviceWatcher`), and routes every `BridgeCommand` Hub produces through an injected `on_bridge_command` callback —
+supplied by whatever owns the real bridge connection — plus a matching `runner.on_bridge_message(device_id, inp,
+retained=False)` entry point for feeding decoded bridge input back in.
+
+| direction | shape |
 |---|---|
-| bridge -> hub | `rustuya/event/{active,passive,state}/<id>` (dps JSON, or single-DP), `rustuya/error/<id>` (`errorCode` 0 = connected) |
-| hub -> bridge | `rustuya/command` `{"action":"set"/"get",...}` (a `get` after each connect) |
+| bridge -> hub | `runner.on_bridge_message(device_id, Connected() / Disconnected() / Message(channel, {dp: value}))` |
+| hub -> bridge | `BridgeCommand(device_id, "set"/"get", dps)` via `on_bridge_command` (a `get` after each connect) |
 | hub -> IL host | il-mqtt.md: retained `il/<id>` and `il/<id>/<prop>`; events and `il/<id>/reject` not retained; `il/_producer/tuya` presence |
 | IL host -> hub | `il/<id>/<prop>/set` (retained writes ignored) |
 
-Run the bridge with `mqtt_retain: true` and register the devices in it yourself (`add`); the hub never touches keys.
+Register the devices on the bridge yourself (`add`); the hub never touches keys.
 
 ## Layout
 
@@ -100,7 +112,7 @@ Run the bridge with `mqtt_retain: true` and register the devices in it yourself 
 src/tuya2ildevice/
   driver.py    TuyaDriver: packets/commands <-> outputs          io.py      inputs and outputs as data
   assemble.py  engine entity plans -> ildevice props/roles       checks.py  il.md section 5 command checks
-  mqtt.py      Hub, BridgeTopics, IlTopics                       tuya/      the DP engine (see below)
+  mqtt.py      Hub, IlTopics                                     tuya/      the DP engine (see below)
 tuya/          classify + platforms, adapter (raw dps <-> values), quirks, ops, codecs, units
 tuya/tables/   per-platform description tables, generated from HA core     tuya/quirks/   from tuya-device-handlers
 tuya/data/     HA's allowed units per device class

@@ -3,10 +3,10 @@
     driver = TuyaDriver(device)              # a tuyadevices.json / Tuya cloud device dict
     driver.descriptor                        # the ildevice descriptor
     outs = driver.handle(now, Connected())
-    outs = driver.handle(now, Message("active", {"dps": {"1": True}}))   # -> [Value("switch_1", True)]
+    outs = driver.handle(now, Message("active", {"1": True}))            # -> [Value("switch_1", True)]
     outs = driver.handle(now, Command("switch_1", "off"))                # -> [SendMessage("set", {"dps": {"1": False}})]
 
-It reads no clock and does no I/O; the host feeds it bridge packets and carries out what it returns.
+It reads no clock and does no I/O; the host feeds it already-decoded dp:value maps and carries out what it returns.
 """
 from __future__ import annotations
 
@@ -47,16 +47,11 @@ def schema_of(device: dict) -> DeviceSchema:
 
 
 def _dps_of(payload: Any) -> tuple[dict[str, Any], Any]:
-    """(dps, t) from any of the shapes rustuya-bridge publishes."""
+    """(dps, t): `payload` is already a flat `{dp: value}` map (the host decoded whatever envelope the bridge's
+    wire payload used); `t` is Tuya's own event timestamp, mixed into that same flat map, not a wrapper key."""
     if not isinstance(payload, dict):
         return {}, None
-    t = payload.get("t")
-    inner = payload.get("data") if isinstance(payload.get("data"), dict) else payload
-    t = inner.get("t", t)
-    dps = inner.get("dps")
-    if not isinstance(dps, dict):
-        dps = {k: v for k, v in inner.items() if isinstance(k, str) and k.isdigit()}
-    return {str(k): v for k, v in dps.items()}, t
+    return {str(k): v for k, v in payload.items() if k != "t"}, payload.get("t")
 
 
 def descriptor_of(device: dict, **kwargs: Any) -> dict:

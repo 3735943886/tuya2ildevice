@@ -1,5 +1,7 @@
-"""Run a `tuya2ildevice.Hub` on two transports: the bridge side (rustuya-bridge) and the IL side (il-ha or any IL
-consumer). The Hub is sans-IO; this is where its `Publish`, `Schedule` and `Unschedule` outputs happen."""
+"""Run a `tuya2ildevice.Hub` on the IL transport (il-ha or any IL consumer). The Hub is sans-IO; this is where its
+`Publish`, `Schedule` and `Unschedule` outputs happen. It knows nothing about rustuya-bridge's own MQTT wire, either
+— Hub's bridge-facing `BridgeCommand` outputs (asking the bridge to read/write a device) are handed to
+`on_bridge_command`, supplied by whatever owns the real bridge connection (e.g. rustuya-local's bridge client)."""
 
 from __future__ import annotations
 
@@ -9,35 +11,34 @@ import time
 from typing import Callable
 
 from .transport import Message, Transport, Unsubscribe
-from ..mqtt import Hub, Publish, Schedule, Unschedule
+from ..io import Connected, Disconnected
+from ..io import Message as DriverInput
+from ..mqtt import BridgeCommand, Hub, Publish, Schedule, Unschedule
 
 _LOGGER = logging.getLogger(__name__)
 
 
 class Runner:
-    def __init__(self, hub: Hub, bridge: Transport, il: Transport, clock: Callable[[], float] = time.time) -> None:
+    def __init__(self, hub: Hub, il: Transport, clock: Callable[[], float] = time.time,
+                 on_bridge_command: Callable[[BridgeCommand], None] | None = None) -> None:
         self.hub = hub
-        self.sides = {"bridge": bridge, "il": il}
+        self.il = il
         self.clock = clock
+        self._on_bridge_command = on_bridge_command
         self._unsubs: list[Unsubscribe] = []
         self._timers: dict[tuple[str, str], asyncio.TimerHandle] = {}
         self._out: asyncio.Queue = asyncio.Queue()
         self._worker: asyncio.Task | None = None
 
     async def start(self) -> None:
-        """Subscribe on both sides, publish presence and every descriptor (retained)."""
+        """Subscribe on the IL side, publish presence and every descriptor (retained)."""
         self._worker = asyncio.ensure_future(self._publish_loop())
-        handlers = {"bridge": self._on_bridge, "il": self._on_il}
         for sub in self.hub.subscriptions():
-            self._unsubs.append(await self._subscribe(sub.side, sub.topic, sub.qos, handlers[sub.side]))
-        for transport in {id(t): t for t in self.sides.values()}.values():
-            hooks = getattr(transport, "on_connect", None)
-            if hooks is not None:
-                hooks.append(self._reconnected)
+            self._unsubs.append(await self.il.subscribe(sub.topic, self._on_il, qos=sub.qos))
+        hooks = getattr(self.il, "on_connect", None)
+        if hooks is not None:
+            hooks.append(self._reconnected)
         self.run(self.hub.start())
-
-    async def _subscribe(self, side: str, topic: str, qos: int, handler) -> Unsubscribe:
-        return await self.sides[side].subscribe(topic, handler, qos=qos)
 
     async def stop(self) -> None:
         """Presence goes offline, the queue drains, then subscriptions and timers are released."""
@@ -100,6 +101,9 @@ class Runner:
                     p.after, self._fire, p.device_id, p.name)
             elif isinstance(p, Unschedule):
                 self._cancel(p.device_id, p.name)
+            elif isinstance(p, BridgeCommand):
+                if self._on_bridge_command is not None:
+                    self._on_bridge_command(p)
             else:
                 self._out.put_nowait(p)
 
@@ -111,11 +115,15 @@ class Runner:
         self._timers.pop((device_id, name), None)
         self._guard(lambda: self.hub.on_timer(self.clock(), device_id, name))
 
-    def _on_bridge(self, msg: Message) -> None:
-        self._guard(lambda: self.hub.on_bridge(self.clock(), msg.topic, msg.payload, msg.retain))
-
     def _on_il(self, msg: Message) -> None:
         self._guard(lambda: self.hub.on_il(self.clock(), msg.topic, msg.payload, msg.retain))
+
+    def on_bridge_message(self, device_id: str, inp: Connected | Disconnected | DriverInput,
+                           retained: bool = False) -> None:
+        """The bridge client (whoever decoded a real rustuya-bridge message into one of these — e.g. rustuya-local's
+        `pyrustuyabridge`-based bridge client) calls this instead of touching `hub`/`run` directly, so a bad message
+        is isolated the same way `_on_il` isolates one (see `_guard`)."""
+        self._guard(lambda: self.hub.on_bridge_message(self.clock(), device_id, inp, retained))
 
     def _guard(self, produce: Callable[[], list]) -> None:
         try:
@@ -130,7 +138,7 @@ class Runner:
         while True:
             p: Publish = await self._out.get()
             try:
-                await self.sides[p.side].publish(p.topic, p.payload, p.qos, p.retain)
+                await self.il.publish(p.topic, p.payload, p.qos, p.retain)
             except Exception:
                 _LOGGER.exception("publish to %s failed", p.topic)
             finally:
