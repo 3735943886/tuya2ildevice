@@ -45,7 +45,7 @@ class MqttTransport:
         self._client.loop_start()
         try:
             await asyncio.wait_for(self._connected.wait(), timeout)
-        except (TimeoutError, asyncio.CancelledError):
+        except (asyncio.TimeoutError, asyncio.CancelledError):   # asyncio.TimeoutError != TimeoutError before 3.11
             self._client.loop_stop()   # a caller that gives up on a failed connect must not be left with our thread
             raise
 

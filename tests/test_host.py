@@ -210,7 +210,7 @@ async def test_a_failed_connect_stops_its_own_thread():
 
     before = {t.name for t in threading.enumerate()}
     t = MqttTransport("127.0.0.1", 1, client_id="dead-end")   # nothing listens on port 1
-    with pytest.raises((TimeoutError, asyncio.CancelledError)):
+    with pytest.raises((asyncio.TimeoutError, asyncio.CancelledError)):   # asyncio.TimeoutError != TimeoutError before 3.11
         await t.connect(timeout=0.3)
     after = {t.name for t in threading.enumerate()}
     assert not (after - before), f"leaked thread(s): {after - before}"
