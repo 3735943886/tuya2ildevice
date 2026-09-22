@@ -1,10 +1,10 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
 name = "tuya2ildevice"
-version = "0.0.1"
+dynamic = ["version"]
 description = "Sans-IO converter: Tuya (rustuya / rustuya-bridge) device + DPS packets <-> ildevice descriptor, values and commands"
 requires-python = ">=3.10"
 license = "MIT"
@@ -12,9 +12,15 @@ dependencies = []
 readme = "README.md"
 classifiers = ["Programming Language :: Python :: 3", "Topic :: Home Automation"]
 
+[project.urls]
+Repository = "https://github.com/3735943886/tuya2ildevice"
+
 [project.optional-dependencies]
 test = ["pytest", "pytest-asyncio", "jsonschema", "paho-mqtt>=2.0"]
 host = ["paho-mqtt>=2.0"]
+
+[tool.hatch.version]
+source = "vcs"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/tuya2ildevice"]

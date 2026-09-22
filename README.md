@@ -1,12 +1,14 @@
 # tuya2ildevice
 
-The one place that interprets Tuya. Sans-IO Python: takes a Tuya device as [rustuya](../rustuya) /
-[rustuya-bridge](../rustuya-bridge) know it and produces an [ildevice](../ildevice): descriptor, live values and
-events from dps packets, and dps for ildevice commands. It opens no sockets and reads no clock. Other projects
-(rustuya-homeassistant, il-ha hosts, rustuya-manager) import this instead of carrying their own Tuya knowledge.
+The one place that interprets Tuya. Sans-IO Python: takes a Tuya device as [rustuya](https://github.com/3735943886/rustuya) /
+[rustuya-bridge](https://github.com/3735943886/rustuya-bridge) know it and produces an
+[ildevice](https://github.com/3735943886/ildevice): descriptor, live values and events from dps packets, and dps for
+ildevice commands. It opens no sockets and reads no clock. Other projects
+([rustuya-homeassistant](https://github.com/3735943886/rustuya-homeassistant), ildevice hosts,
+[rustuya-manager](https://github.com/3735943886/rustuya-manager)) import this instead of carrying their own Tuya knowledge.
 
 ```
-pip install .              # no dependencies;  .[host] adds paho-mqtt for `tuya2ildevice.host`,  .[test] for the tests
+pip install tuya2ildevice              # no dependencies;  tuya2ildevice[host] adds paho-mqtt for `tuya2ildevice.host`,  [test] for the tests
 ```
 
 ```python
@@ -74,7 +76,7 @@ control, set-position and position dps; a snapshot never starts motion. Timers c
 `Schedule` (`Hub`); the host calls back with `Timer` / `hub.on_timer(now, id, name)`. Loading a user's `.py` file is the
 host's job; the code runs in-process.
 
-## rustuya-bridge <-> tuya2ildevice <-> il-ha over MQTT
+## rustuya-bridge <-> tuya2ildevice <-> an IL host over MQTT
 
 `Hub` ([mqtt.py](src/tuya2ildevice/mqtt.py)) owns one driver per device and maps both sides. Its methods take what was
 received and return `Publish(side, topic, payload, retain, qos)`; the host only executes them.
@@ -87,8 +89,8 @@ received and return `Publish(side, topic, payload, retain, qos)`; the host only 
 |---|---|
 | bridge -> hub | `rustuya/event/{active,passive,state}/<id>` (dps JSON, or single-DP), `rustuya/error/<id>` (`errorCode` 0 = connected) |
 | hub -> bridge | `rustuya/command` `{"action":"set"/"get",...}` (a `get` after each connect) |
-| hub -> il-ha | il-mqtt.md: retained `il/<id>` and `il/<id>/<prop>`; events and `il/<id>/reject` not retained; `il/_producer/tuya` presence |
-| il-ha -> hub | `il/<id>/<prop>/set` (retained writes ignored) |
+| hub -> IL host | il-mqtt.md: retained `il/<id>` and `il/<id>/<prop>`; events and `il/<id>/reject` not retained; `il/_producer/tuya` presence |
+| IL host -> hub | `il/<id>/<prop>/set` (retained writes ignored) |
 
 Run the bridge with `mqtt_retain: true` and register the devices in it yourself (`add`); the hub never touches keys.
 
@@ -104,7 +106,7 @@ tuya/tables/   per-platform description tables, generated from HA core     tuya/
 tuya/data/     HA's allowed units per device class
 scripts/       generators for those data files, and golden/ (builds the golden data; needs HA core + oracle venvs)
 docs/          engine-spec.md (the engine's behaviour), analysis/ (how it was derived from HA core)
-tests/         golden/ = 324 HA core fixtures + core's own snapshots; chain/ = the same through il-ha's planner
+tests/         golden/ = 324 HA core fixtures + core's own snapshots; chain/ = the same through an IL host's planner
 ```
 
 The engine reproduces Home Assistant core's `tuya` integration exactly, including its quirks, and the golden tests
@@ -121,5 +123,5 @@ pip install -e .[test] && python -m pytest
 `tests/test_adapter.py` compares the raw-dps adapter with the Tuya SDK and is skipped unless `tuya-device-sharing-sdk==0.2.15`
 is installed. The spec repository (`../ildevice`, or `$ILDEVICE`) supplies the schema and the language-neutral vectors
 (commands, wire values, topics) read directly from its checkout; those tests are skipped if it is not there. `tests/chain/`
-compares every Home Assistant core tuya fixture with core's entity snapshots through il-ha's HA-free planner (needs
-`il-ha`, i.e. its `ildevice.core`, on `sys.path`; not collected without it).
+compares every Home Assistant core tuya fixture with core's entity snapshots through an IL host's HA-free planner
+(needs that host's `ildevice.core` on `sys.path`; not collected without it).
