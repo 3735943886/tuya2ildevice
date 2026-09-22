@@ -200,3 +200,17 @@ async def test_paho_transport_runs_the_runner_survives_a_dropped_connection_and_
             await sim.publish(topic, "", 1, True)
         await asyncio.sleep(0.1)
         await sim.close()
+
+
+async def test_a_failed_connect_stops_its_own_thread():
+    """A timed-out connect() must not leave the paho loop thread running (the caller may just drop the object)."""
+    import threading
+
+    from tuya2ildevice.host import MqttTransport
+
+    before = {t.name for t in threading.enumerate()}
+    t = MqttTransport("127.0.0.1", 1, client_id="dead-end")   # nothing listens on port 1
+    with pytest.raises((TimeoutError, asyncio.CancelledError)):
+        await t.connect(timeout=0.3)
+    after = {t.name for t in threading.enumerate()}
+    assert not (after - before), f"leaked thread(s): {after - before}"

@@ -273,16 +273,26 @@ function_first, rw), `record_switch` (bool, status_range_first, r); derived `is_
 `motion_detection_enabled` = `OrElse(Resolved(motion_switch), False)`; actions
 enable/disable_motion_detection. Stream/image = adapter.
 
-## 7. Runtime API (normative signatures)
+## 7. Runtime API (as implemented in `tuya/runtime.py` + `tuya/platforms.py`)
 ```
-classify(schema, env, layers=CORE) -> Plan
-   Plan{entities: [EntityPlan{def, resolved roles, bound pipelines, features, lists,
-        depends_on}], device_info}
-read(EntityPlan, status, env, slot) -> State{fields..., available = schema.online}
-write(EntityPlan, action, args, status, env) -> list[Command]   | raises WriteRejected
-on_update(EntityPlan, slot, changed|None, dp_timestamps|None, status, env)
-        -> UpdateResult{write_state: bool, fire: {type, attrs}|None}
-reclassify(schema') -> Plan'       # schema change / late schema
+classify(schema, env=None, platforms=None) -> Plan            # platforms: which tables to build, default all
+   Plan{entities: [EntityPlan]}
+   EntityPlan{platform, key, identity, roles: {name: ResolvedDp}, depends_on: (code...),
+              read, write, slot_kind: None|"delta"|"event", update_all: bool}
+```
+`read` and `write` are not standalone functions taking `(EntityPlan, ...)`: each platform builder in
+`platforms.py` returns a closure already bound to that entity's resolved dps, spec and `env` (env is
+consulted only at classify time, e.g. unit policy; nothing keeps it at runtime). Calling convention:
+`read(status) -> dict[field, value]` for every platform except `slot_kind == "delta"`, which is
+`read(status, slot) -> dict` (`assemble.py` branches on `plan.slot_kind` to pick the arity).
+`write(action, args, status) -> list[{"code","value"}]`, may raise `WriteRejected`. There is no
+`available`/`State` wrapper or `schema.online` field inside the engine; availability is computed by
+the host (`TuyaDriver`) outside `tuya/`, from the packet, not by `read`. There is no `reclassify`;
+call `classify()` again with the new schema (it is a pure function of `schema, env, platforms`).
+```
+new_slot(plan) -> StateSlot|None                               # StateSlot() iff plan.slot_kind, else None
+on_update(plan, slot, changed|None, dp_timestamps|None, status) -> UpdateResult{write_state, fire}
+   # fire: tuple[event_type, attrs|None] | None (event platform only)
 ```
 `depends_on` = role codes + every `Status`/`Raw` reference (cross-dp). `on_update`:
 `changed is None` (online/offline/name) => `write_state=True`, never accumulates/fires;
@@ -296,7 +306,7 @@ and validated value not None: `total += float(scaled)`, `last_ts=ts`, write_stat
 no write. `read` returns `total`. Timestamps: host-supplied (Q4).
 
 ## 8. Platform schemas (fixed vocabularies)
-(roles / derived / actions / feature flags; `il/platforms.py` will hold the machine form)
+(roles / derived / actions / feature flags; the machine form is `tuya/platforms.py`)
 - switch: main | is_on | turn_on/off | -
 - binary_sensor: main(alts: bitmap/bool/in-set) | is_on | - | -
 - sensor: main(alts) (+parsed attrs) | native_value,unit,device_class,options | - | -

@@ -4,8 +4,8 @@ import json
 import pathlib
 
 import fixtures  # tuya2ildevice/tests/golden
-from il_ha.core.descriptor import parse_descriptor  # il-ha core (see conftest)
-from il_ha.core.plan import plan_entities
+from ildevice.core.descriptor import parse_descriptor  # il-ha core (see conftest)
+from ildevice.core.plan import plan_entities
 from tuya2ildevice import descriptor_of
 
 

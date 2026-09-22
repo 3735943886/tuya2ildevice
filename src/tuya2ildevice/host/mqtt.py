@@ -43,7 +43,11 @@ class MqttTransport:
         self._loop = asyncio.get_running_loop()
         self._client.connect_async(self.host, self.port)
         self._client.loop_start()
-        await asyncio.wait_for(self._connected.wait(), timeout)
+        try:
+            await asyncio.wait_for(self._connected.wait(), timeout)
+        except (TimeoutError, asyncio.CancelledError):
+            self._client.loop_stop()   # a caller that gives up on a failed connect must not be left with our thread
+            raise
 
     async def close(self) -> None:
         self._client.disconnect()

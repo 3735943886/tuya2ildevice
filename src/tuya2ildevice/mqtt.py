@@ -142,9 +142,12 @@ class IlTopics:
         return f"{self.prefix}/+/+/set"
 
     def parse_set(self, topic: str) -> tuple[str, str] | None:
-        parts = topic.split("/")
-        if len(parts) == 4 and parts[0] == self.prefix and parts[3] == "set" and not parts[1].startswith("_"):
-            return parts[1], parts[2]
+        head = self.prefix + "/"
+        if not topic.startswith(head):
+            return None
+        parts = topic[len(head):].split("/")
+        if len(parts) == 3 and parts[2] == "set" and not parts[0].startswith("_"):
+            return parts[0], parts[1]
         return None
 
 

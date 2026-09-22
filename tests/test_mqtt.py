@@ -60,6 +60,24 @@ def test_bad_ids_refused():
         Hub([d])
 
 
+def test_a_multi_segment_il_prefix_still_parses_writes():
+    """A prefix that itself contains a "/" (e.g. namespacing a producer under "il/tuya") must not break `set` parsing:
+    a write on it was silently dropped (parse_set assumed the prefix was one path segment)."""
+    from tuya2ildevice import IlTopics
+
+    t = IlTopics("il/tuya")
+    assert t.set_subscription() == "il/tuya/+/+/set"
+    assert t.parse_set("il/tuya/dev1/power/set") == ("dev1", "power")
+    assert t.parse_set("il/dev1/power/set") is None                 # a shorter prefix must not match
+    assert t.parse_set("il/tuya/dev1/power") is None                 # not a set topic
+    assert t.parse_set("il/tuya/_producer/tuya") is None             # reserved (M-2)
+
+    hub = Hub([light()], il=t)
+    hub.on_bridge(0, "rustuya/error/lamp1", '{"errorCode":0,"errorMsg":"Connection Successful"}')
+    out = topics(hub.on_il(0, "il/tuya/lamp1/switch_led/set", "true"), "bridge")
+    assert json.loads(out["rustuya/command"].payload)["dps"] == {"20": True}
+
+
 def test_reload_overrides_republishes_and_clears_removed_props():
     from tuya2ildevice import OverrideError
     import pytest

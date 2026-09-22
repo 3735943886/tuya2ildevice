@@ -237,7 +237,16 @@ def camera(schema, env, desc):
         if m is None:
             raise WriteRejected("motion_switch not available")   # TODO parity: core raises ActionDPCodeNotFound?
         return [{"code": m.code, "value": action == "enable_motion_detection"}]
-    return EntityPlan("camera", desc["key"], identity(desc), roles, tuple(v.code for v in roles.values()), read, write)
+    return EntityPlan("camera", desc["key"], identity(desc), roles, tuple(v.code for v in roles.values()), read, write,
+                      update_all=True)
+
+
+def _utf8(raw: bytes | None) -> str | None:
+    """P-14 (deviate): core raises on an undecodable payload; the engine yields UNKNOWN."""
+    try:
+        return None if raw is None else raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
 
 
 @builder("event", "EVENTS")
@@ -263,7 +272,7 @@ def event(schema, env, desc):
             raw = st.get(code)
             if raw is None:
                 return {"event": None}
-            return {"event": ("triggered", {"message": codecs.b64_decode(raw).decode("utf-8")})}
+            return {"event": ("triggered", {"message": _utf8(codecs.b64_decode(raw))})}
     return EntityPlan("event", desc["key"], ident, {"main": r}, (code,), read, slot_kind="event")
 
 

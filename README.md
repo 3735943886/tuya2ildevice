@@ -104,7 +104,7 @@ tuya/tables/   per-platform description tables, generated from HA core     tuya/
 tuya/data/     HA's allowed units per device class
 scripts/       generators for those data files, and golden/ (builds the golden data; needs HA core + oracle venvs)
 docs/          engine-spec.md (the engine's behaviour), analysis/ (how it was derived from HA core)
-tests/         golden/ = 324 HA core fixtures + core's own snapshots; spec/ = schema and vectors copied from ildevice
+tests/         golden/ = 324 HA core fixtures + core's own snapshots; chain/ = the same through il-ha's planner
 ```
 
 The engine reproduces Home Assistant core's `tuya` integration exactly, including its quirks, and the golden tests
@@ -119,10 +119,7 @@ pip install -e .[test] && python -m pytest
 ```
 
 `tests/test_adapter.py` compares the raw-dps adapter with the Tuya SDK and is skipped unless `tuya-device-sharing-sdk==0.2.15`
-is installed. `tests/spec/` is a copy of ildevice's `schema/` and `vectors/`; refresh it when the spec changes.
-
-## Tests
-
-`pytest`. The spec repository (`../ildevice`, or `$ILDEVICE`) supplies the schema and the language-neutral vectors
-(commands, wire values, topics); those tests are skipped if it is not there. `tests/chain/` compares every Home Assistant
-core tuya fixture with core's entity snapshots through il-ha's HA-free planner (needs `il-ha`; not collected without it).
+is installed. The spec repository (`../ildevice`, or `$ILDEVICE`) supplies the schema and the language-neutral vectors
+(commands, wire values, topics) read directly from its checkout; those tests are skipped if it is not there. `tests/chain/`
+compares every Home Assistant core tuya fixture with core's entity snapshots through il-ha's HA-free planner (needs
+`il-ha`, i.e. its `ildevice.core`, on `sys.path`; not collected without it).

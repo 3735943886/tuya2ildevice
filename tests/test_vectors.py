@@ -48,7 +48,7 @@ def test_default_topics_follow_the_vectors(case):
     assert {p: t.state("dev1", p) for p in case["state"]} == case["state"]
     assert t.reject("dev1") == case["reject"]
     for prop, topic in case["set"].items():
-        assert t.parse_set(topic) == (case["descriptor"]["id"], prop) if prefix == "il" else True
+        assert t.parse_set(topic) == (case["descriptor"]["id"], prop)
 
 
 @pytest.mark.parametrize("case", load("topics.json").get("presence", []), ids=lambda c: c["topic"])
