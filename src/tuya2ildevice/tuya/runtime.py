@@ -7,6 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from . import standard
 from .model import DeviceSchema, ResolvedDp
 
 TABLES = pathlib.Path(__file__).parent / "tables"
@@ -93,7 +94,8 @@ _TABLE_CACHE: dict[str, dict] = {}
 
 def load_table(platform: str) -> dict:
     if platform not in _TABLE_CACHE:
-        _TABLE_CACHE[platform] = json.loads((TABLES / f"{platform}.json").read_text())["tables"]
+        tables = json.loads((TABLES / f"{platform}.json").read_text())["tables"]
+        _TABLE_CACHE[platform] = standard.apply(platform, tables)
     return _TABLE_CACHE[platform]
 
 

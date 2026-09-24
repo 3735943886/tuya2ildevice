@@ -6,7 +6,10 @@ import fixtures
 import pytest
 
 from tuya2ildevice import default_env
-from tuya2ildevice.tuya import platforms  # noqa: F401  (registers builders)
+from tuya2ildevice.tuya import (  # noqa: F401  (platforms registers builders)
+    platforms,
+    standard,
+)
 from tuya2ildevice.tuya.model import DeviceSchema, DpSpec
 from tuya2ildevice.tuya.runtime import BUILDERS, classify
 
@@ -53,8 +56,12 @@ def run(platform):
         for k in want.keys() & got.keys():
             w, g = want[k], got[k].identity
             for gk, ik in ATTRS:
-                if w[gk] != g.get(ik):
-                    attr.append((code, k, gk, w[gk], g.get(ik)))
+                want_v = w[gk]
+                if platform == "switch" and gk == "device_class":
+                    # core's golden, with Tuya's own category list applied over it (tuya/standard.py)
+                    want_v = standard.switch_device_class(fixtures.load(code)["category"], want_v)
+                if want_v != g.get(ik):
+                    attr.append((code, k, gk, want_v, g.get(ik)))
             cap = w["capabilities"] or {}
             if platform in ("number", "sensor"):
                 eu = g.get("suggested_unit") or g.get("native_unit")

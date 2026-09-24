@@ -9,6 +9,7 @@ from ildevice.core.descriptor import parse_descriptor
 from ildevice.core.plan import plan_entities
 
 from tuya2ildevice import descriptor_of
+from tuya2ildevice.tuya import standard
 
 GOLDEN = pathlib.Path(__file__).resolve().parents[1] / "golden"
 
@@ -57,8 +58,11 @@ def compare(**kw) -> dict:
                     rows["platform"].append((code, key, platform, s.platform))
                     continue
                 tally["ok_platform"] += 1
+                want_class = e.get("device_class")
+                if platform == "switch":   # core's golden, with Tuya's own category list applied over it
+                    want_class = standard.switch_device_class(fixtures.load(code)["category"], want_class)
                 for facet, want, got in (
-                    ("class", e.get("device_class"), s.device_class),
+                    ("class", want_class, s.device_class),
                     ("category", e.get("entity_category"), s.entity_category),
                     ("unit", e.get("unit") or None, s.unit or None),
                 ):

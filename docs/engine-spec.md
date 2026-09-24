@@ -391,6 +391,7 @@ declared lossiness P-10). T4 one test per parity item (section 12). T5 dpid path
 | P-25 | humidifier missing control dp => ActionDPCodeNotFound(expected, available) | `Raise` | reproduce |
 | P-26 | delta: `changed is None` bypasses (no accumulate); not persisted; starts 0 | 7.3 | reproduce |
 | P-27 | upper-case type names unparsed | `normalize_type` | reproduce |
+| P-28 | core tags a `kg` (switch) category's switches `SwitchDeviceClass.OUTLET` (a plug icon); Tuya's own category list names `kg` "Switch", `cz` "Socket", `pc` "Power strip" | `switch` device class by the standard's category name (`tuya/standard.py`, data in `tables/_tuya_categories.json` + `_tuya_standard_rules.json`); only a socket-like class core sets is replaced | **deviate** (Tuya's standard wins over core) |
 Unverified in core (no fixtures): cover tilt, `mach_operate`; reproduced from code.
 
 ## 13. Appendix — expressiveness proofs (draft-2 constructs)
