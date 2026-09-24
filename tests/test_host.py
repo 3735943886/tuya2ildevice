@@ -263,3 +263,57 @@ async def test_a_failed_connect_stops_its_own_thread():
         await t.connect(timeout=0.3)
     after = {t.name for t in threading.enumerate()}
     assert not (after - before), f"leaked thread(s): {after - before}"
+
+
+async def test_a_producer_stopping_after_its_replacement_started_does_not_leave_presence_offline():
+    il = InProcessTransport()
+    old = Runner(Hub([lamp("lamp1")], il=IlTopics("il", "tuya")), il)
+    await old.start()
+    await old.drain()
+    new = Runner(Hub([lamp("lamp1")], il=IlTopics("il", "tuya")), il)
+    await new.start()                                        # the replacement starts first...
+    await new.drain()
+    await old.stop()                                         # ...then the old one goes, publishing `offline`
+    for _ in range(3):
+        await il.settle()
+        await new.drain()
+    assert il.retained["il/_producer/tuya"].payload == "online"
+    await new.stop()
+    await il.settle()
+    assert il.retained["il/_producer/tuya"].payload == "offline"          # its own `offline` is not answered
+
+
+async def test_the_handover_on_a_real_broker(broker):
+    """What a host sees: each producer on its own connection with its Last Will, the old one stopping after the new."""
+    # paho is optional: the broker fixture skips without it
+    from tuya2ildevice.host import MqttTransport
+
+    async def producer(name):
+        hub = Hub([lamp("lamp1")], il=IlTopics("il", "tuya"))
+        will = hub.presence(False)
+        t = MqttTransport("127.0.0.1", broker, client_id=name, will=(will.topic, will.payload, will.qos, will.retain))
+        await t.connect()
+        runner = Runner(hub, t)
+        await runner.start()
+        await runner.drain()
+        return runner, t
+
+    old, old_t = await producer("handover-old")
+    new, new_t = await producer("handover-new")
+    await old.stop()
+    await old_t.close()
+    seen = []
+    watch = MqttTransport("127.0.0.1", broker, client_id="handover-watch")
+    await watch.connect()
+    for _ in range(40):
+        seen.clear()
+        unsub = await watch.subscribe("il/_producer/tuya", lambda m: seen.append(m.payload))
+        await asyncio.sleep(0.1)
+        unsub()
+        if seen and seen[-1] in ("online", b"online"):
+            break
+    assert seen and seen[-1] in ("online", b"online")
+    await new.stop()
+    await new_t.close()
+    await watch.publish("il/_producer/tuya", "", 1, True)
+    await watch.close()

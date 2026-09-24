@@ -28,35 +28,48 @@ from .io import (
 from .mqtt import BridgeCommand, Hub, IlTopics, Publish, Schedule, Subscribe, Unschedule
 from .overrides import OverrideError, from_v1, merge_all
 
+
+def preload() -> None:
+    """Read the bundled data files that are otherwise read on first use (quirks, platform tables); importing the package
+    reads the rest. Both block: a host whose event loop must not (Home Assistant) imports and calls this in a worker
+    thread before it drives devices."""
+    from .tuya.quirks import load_quirks
+    from .tuya.runtime import preload_tables
+
+    load_quirks()
+    preload_tables()
+
+
 __all__ = [
-                 "Absent",
-                 "BridgeCommand",
-                 "Command",
-                 "Connected",
-                 "Converter",
-                 "CoverMotion",
-                 "Descriptor",
-                 "Disconnected",
-                 "Event",
-                 "Hub",
-                 "IlTopics",
-                 "Message",
-                 "OverrideError",
-                 "Publish",
-                 "Reject",
-                 "Rejected",
-                 "Result",
-                 "Schedule",
-                 "SendMessage",
-                 "Subscribe",
-                 "Timer",
-                 "TuyaDriver",
-                 "Unschedule",
-                 "Value",
-                 "check_command",
-                 "default_env",
-                 "descriptor_of",
-                 "from_v1",
-                 "merge_all",
-                 "schema_of",
+    "Absent",
+    "BridgeCommand",
+    "Command",
+    "Connected",
+    "Converter",
+    "CoverMotion",
+    "Descriptor",
+    "Disconnected",
+    "Event",
+    "Hub",
+    "IlTopics",
+    "Message",
+    "OverrideError",
+    "Publish",
+    "Reject",
+    "Rejected",
+    "Result",
+    "Schedule",
+    "SendMessage",
+    "Subscribe",
+    "Timer",
+    "TuyaDriver",
+    "Unschedule",
+    "Value",
+    "check_command",
+    "default_env",
+    "descriptor_of",
+    "from_v1",
+    "merge_all",
+    "preload",
+    "schema_of",
 ]

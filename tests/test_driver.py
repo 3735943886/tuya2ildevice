@@ -325,3 +325,26 @@ def test_robot_vacuum_state_and_commands():
     vals = {o.prop: o.value for o in d.handle(7, Message("state", {ids["status"]: "cleaning", ids["suction"]: "strong"}))
             if isinstance(o, Value)}
     assert vals["vacuum_state"] == "cleaning" and vals["fan_speed"] == "strong"
+
+
+def test_after_preload_driving_a_device_reads_no_file(monkeypatch):
+    """A host with an event loop that must not block (Home Assistant) imports and preloads in a worker thread; after
+    that, making drivers (quirks, platform tables, units) must not touch the disk."""
+    import pathlib
+
+    import fixtures
+
+    import tuya2ildevice
+    from tuya2ildevice.tuya import quirks, runtime
+
+    records = [fixtures.load(code) for code in fixtures.all_codes()]      # the fixtures themselves are files
+    monkeypatch.setattr(quirks, "_QUIRKS", None)
+    monkeypatch.setattr(runtime, "_TABLE_CACHE", {})
+    tuya2ildevice.preload()
+
+    def no_io(*args, **kwargs):
+        raise AssertionError(f"file read after preload: {args[:1]}")
+    monkeypatch.setattr(pathlib.Path, "read_text", no_io)
+    monkeypatch.setattr(pathlib.Path, "open", no_io)
+    for rec in records:
+        TuyaDriver(rec, allow_hazardous=True)

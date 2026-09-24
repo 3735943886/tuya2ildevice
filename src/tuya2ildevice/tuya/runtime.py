@@ -97,6 +97,13 @@ def load_table(platform: str) -> dict:
     return _TABLE_CACHE[platform]
 
 
+def preload_tables() -> None:
+    """Read every platform table now (see `tuya2ildevice.preload`)."""
+    for path in sorted(TABLES.glob("*.json")):
+        if not path.stem.startswith("_"):
+            load_table(path.stem)
+
+
 def identity(desc: dict[str, Any]) -> dict[str, Any]:
     out = {k: v for k, v in desc.items() if not k.startswith("$")}
     out.setdefault("entity_registry_enabled_default", True)

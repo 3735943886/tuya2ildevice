@@ -29,12 +29,16 @@ class Runner:
         self._timers: dict[tuple[str, str], asyncio.TimerHandle] = {}
         self._out: asyncio.Queue = asyncio.Queue()
         self._worker: asyncio.Task | None = None
+        self._presence_unsub: Unsubscribe | None = None
 
     async def start(self) -> None:
         """Subscribe on the IL side, publish presence and every descriptor (retained)."""
         self._worker = asyncio.ensure_future(self._publish_loop())
         for sub in self.hub.subscriptions():
             self._unsubs.append(await self.il.subscribe(sub.topic, self._on_il, qos=sub.qos))
+        # another producer on the same presence topic (one being replaced, stopping after this one started) publishes
+        # `offline` as it goes, and it is retained over this one's `online`: say `online` again while running
+        self._presence_unsub = await self.il.subscribe(self.hub.il.presence, self._on_presence)
         hooks = getattr(self.il, "on_connect", None)
         if hooks is not None:
             hooks.append(self._reconnected)
@@ -44,6 +48,9 @@ class Runner:
         """Presence goes offline, the queue drains, then subscriptions and timers are released."""
         if self._worker is None:                   # not started, or already stopped
             return
+        if self._presence_unsub is not None:       # first: this one's own `offline` is not to be answered
+            self._presence_unsub()
+            self._presence_unsub = None
         self.run(self.hub.stop())
         await self.drain()
         for unsub in self._unsubs:
@@ -115,6 +122,13 @@ class Runner:
     def _fire(self, device_id: str, name: str) -> None:
         self._timers.pop((device_id, name), None)
         self._guard(lambda: self.hub.on_timer(self.clock(), device_id, name))
+
+    def _on_presence(self, msg: Message) -> None:
+        payload = msg.payload.decode() if isinstance(msg.payload, (bytes, bytearray)) else msg.payload
+        if msg.retain or payload != "offline" or self._presence_unsub is None:
+            return                                 # a replay on subscribe is older than this one's own `online`
+        _LOGGER.info("%s went offline while this producer runs (another one stopped): online again", msg.topic)
+        self.run([self.hub.presence(True)])
 
     def _on_il(self, msg: Message) -> None:
         self._guard(lambda: self.hub.on_il(self.clock(), msg.topic, msg.payload, msg.retain))
