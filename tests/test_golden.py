@@ -2,12 +2,14 @@
 import json
 import pathlib
 
-import pytest
 import fixtures
-from tuya2ildevice.tuya import platforms  # noqa: F401  (registers builders)
+import pytest
+
 from tuya2ildevice import default_env
+from tuya2ildevice.tuya import platforms  # noqa: F401  (registers builders)
 from tuya2ildevice.tuya.model import DeviceSchema, DpSpec
 from tuya2ildevice.tuya.runtime import BUILDERS, classify
+
 ENV = default_env()
 
 assert len(fixtures.all_codes()) == 324, 'fixtures missing'

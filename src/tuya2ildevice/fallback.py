@@ -12,7 +12,20 @@ from __future__ import annotations
 from typing import Any
 
 from .tuya import ops
-from .tuya.model import BITMAP, BOOLEAN, ENUM, INTEGER, JSON, RAW, STRING, DeviceSchema, DpSpec, ResolvedDp, SchemaError, normalize_type
+from .tuya.model import (
+    BITMAP,
+    BOOLEAN,
+    ENUM,
+    INTEGER,
+    JSON,
+    RAW,
+    STRING,
+    DeviceSchema,
+    DpSpec,
+    ResolvedDp,
+    SchemaError,
+    normalize_type,
+)
 from .tuya.runtime import EntityPlan
 
 MAX_TEXT = 1024                                    # il-messages.md W-13

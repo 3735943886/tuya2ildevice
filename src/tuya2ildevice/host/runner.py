@@ -8,12 +8,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Callable
+from collections.abc import Callable
 
-from .transport import Message, Transport, Unsubscribe
 from ..io import Connected, Disconnected
 from ..io import Message as DriverInput
 from ..mqtt import BridgeCommand, Hub, Publish, Schedule, Unschedule
+from .transport import Message, Transport, Unsubscribe
 
 _LOGGER = logging.getLogger(__name__)
 

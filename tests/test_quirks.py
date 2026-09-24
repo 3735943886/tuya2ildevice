@@ -2,9 +2,17 @@
 quirk_synthetic_golden.json empty-schema patches)."""
 import json
 import pathlib
+
 import fixtures
+
 from tuya2ildevice.tuya.model import DeviceSchema, DpSpec
-from tuya2ildevice.tuya.quirks import apply_quirk, apply_status_quirk, device_info, load_quirks, quirk_for
+from tuya2ildevice.tuya.quirks import (
+    apply_quirk,
+    apply_status_quirk,
+    device_info,
+    load_quirks,
+    quirk_for,
+)
 
 here = pathlib.Path(__file__).parent / "golden"
 

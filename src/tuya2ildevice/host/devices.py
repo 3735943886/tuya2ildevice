@@ -20,7 +20,7 @@ def parse_devices(raw: str | bytes) -> tuple[list[dict], list[str]]:
     data = json.loads(raw)
     entries = list(data.values()) if isinstance(data, dict) else data
     if not isinstance(entries, list):
-        raise ValueError("expected a list or a dict of device records")
+        raise ValueError("expected a list or a dict of device records")  # noqa: TRY004  (callers handle a bad file as ValueError)
     usable, skipped = [], []
     for entry in entries:
         if not isinstance(entry, dict) or not entry.get("id"):

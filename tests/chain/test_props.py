@@ -9,7 +9,6 @@ Every remaining difference is a documented IL-level decision, listed here so a n
   * windspeed unit    — Home Assistant converts to the display unit on the host side; not a producer concern.
 """
 import pytest
-
 from props import compare
 
 

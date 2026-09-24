@@ -59,7 +59,7 @@ def _load_py(p: Path) -> tuple[dict, str | None]:
     sys.modules[name] = module                   # dataclasses and pickling look the module up by name
     try:
         spec.loader.exec_module(module)
-    except Exception as e:                       # a user's file: anything can go wrong in it
+    except Exception as e:  # noqa: BLE001  (a user's file: anything can go wrong in it)
         sys.modules.pop(name, None)
         return {}, f"{p.name}: {type(e).__name__}: {e}"
     types = getattr(module, "CONVERTERS", None)

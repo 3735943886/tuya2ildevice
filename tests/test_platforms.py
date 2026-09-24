@@ -1,6 +1,6 @@
 """Regression tests for platform-builder bugs found auditing docs/engine-spec.md against the code."""
-from tuya2ildevice.tuya.model import DeviceSchema, DpSpec
 from tuya2ildevice.tuya import platforms  # noqa: F401  (registers builders)
+from tuya2ildevice.tuya.model import DeviceSchema, DpSpec
 from tuya2ildevice.tuya.runtime import HostEnv, classify, on_update
 
 

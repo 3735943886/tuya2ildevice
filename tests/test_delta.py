@@ -1,6 +1,6 @@
 """Delta accumulator (spec 7.3), mirrors core DeltaIntegerWrapper semantics."""
-from tuya2ildevice.tuya.model import DeviceSchema, DpSpec
 from tuya2ildevice.tuya import platforms  # noqa: F401
+from tuya2ildevice.tuya.model import DeviceSchema, DpSpec
 from tuya2ildevice.tuya.runtime import HostEnv, classify, new_slot, on_update
 
 

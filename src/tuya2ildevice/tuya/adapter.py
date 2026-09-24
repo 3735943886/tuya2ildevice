@@ -174,10 +174,10 @@ class Adapter:
     entries: dict[str, tuple[str, str, dict]] = field(default_factory=dict)   # dpid -> (code, strategy, config_item)
     enum_ranges: dict[str, list] = field(default_factory=dict)                # code -> range (Enum guard)
     unsupported: dict[str, str] = field(default_factory=dict)                 # dpid -> strategy name (passthrough)
-    remaps: dict[str, "Remap"] = field(default_factory=dict)                  # code -> user value fix (overrides `remap`)
+    remaps: dict[str, Remap] = field(default_factory=dict)                  # code -> user value fix (overrides `remap`)
 
     @classmethod
-    def from_local_strategy(cls, local_strategy: dict, status_range: dict[str, Any] | None = None) -> "Adapter":
+    def from_local_strategy(cls, local_strategy: dict, status_range: dict[str, Any] | None = None) -> Adapter:
         a = cls()
         for dpid, meta in (local_strategy or {}).items():
             code = strategy_code(meta)

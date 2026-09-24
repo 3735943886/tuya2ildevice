@@ -1,9 +1,10 @@
 """Load core test fixtures the way tests/components/tuya/__init__.py::create_device does."""
 import json
 import pathlib
+
 FIX=pathlib.Path(__file__).parent/'core_fixtures'   # copied from HA core tests/components/tuya/fixtures (Apache-2.0)
 def load(code):
-    d=json.load(open(FIX/f'{code}.json'))
+    d=json.loads((FIX/f'{code}.json').read_text())
     def dumps(v):
         return json.dumps(v,separators=(',',':'))  # core json_dumps (orjson) is compact
     def vals(v): return v if isinstance(v,str) else dumps(v)

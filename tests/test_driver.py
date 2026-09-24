@@ -3,10 +3,22 @@ import os
 import pathlib
 
 import pytest
-
 from helpers import curtain, fn, light, strat
-from tuya2ildevice import (Absent, Command, Connected, Disconnected, Event, Message, Reject, SendMessage, TuyaDriver,
-                           Value, check_command, Rejected)
+
+from tuya2ildevice import (
+    Absent,
+    Command,
+    Connected,
+    Disconnected,
+    Event,
+    Message,
+    Reject,
+    Rejected,
+    SendMessage,
+    TuyaDriver,
+    Value,
+    check_command,
+)
 
 ILDEVICE = pathlib.Path(os.environ.get("ILDEVICE", pathlib.Path(__file__).resolve().parents[2] / "ildevice"))   # the spec repo
 needs_spec = pytest.mark.skipif(not ILDEVICE.is_dir(), reason=f"no ildevice checkout at {ILDEVICE} (set ILDEVICE)")
@@ -138,7 +150,7 @@ def test_unused_dps_get_properties_like_v1():
     
 
 # --- user overrides ----------------------------------------------------------------------------
-from tuya2ildevice import OverrideError, from_v1, merge_all   # noqa: E402
+from tuya2ildevice import OverrideError, from_v1, merge_all
 
 
 def _kg():
@@ -201,8 +213,8 @@ def test_merge_and_v1_migration():
 
 
 # --- code converters ---------------------------------------------------------------------------
-from tuya2ildevice import Converter, Result   # noqa: E402
-from tuya2ildevice.io import CancelTimer, SetTimer, Timer   # noqa: E402
+from tuya2ildevice import Converter, Result
+from tuya2ildevice.io import CancelTimer, SetTimer, Timer
 
 
 def _motion(outs):

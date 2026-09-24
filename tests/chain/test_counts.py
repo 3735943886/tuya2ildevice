@@ -6,7 +6,6 @@ import json
 import pathlib
 
 import pytest
-
 from measure import run
 
 BASELINE = json.loads((pathlib.Path(__file__).parent / "baseline.json").read_text())

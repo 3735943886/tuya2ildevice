@@ -4,10 +4,18 @@ import json
 import pathlib
 
 import pytest
-
 from helpers import curtain, fn, strat
 from test_driver import SCHEMA, needs_spec
-from tuya2ildevice import Command, Connected, Converter, Message, SendMessage, TuyaDriver, Value
+
+from tuya2ildevice import (
+    Command,
+    Connected,
+    Converter,
+    Message,
+    SendMessage,
+    TuyaDriver,
+    Value,
+)
 from tuya2ildevice.overrides import BUILTIN, OverrideError, from_v1, is_v1
 
 HERE = pathlib.Path(__file__).parent

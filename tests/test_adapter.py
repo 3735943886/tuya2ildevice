@@ -3,14 +3,16 @@ Run with the oracle venv (tuya-device-sharing-sdk==0.2.15)."""
 import json
 import pathlib
 import random
+
 import fixtures
-from tuya2ildevice.tuya.adapter import Adapter, STRATEGIES
+
+from tuya2ildevice.tuya.adapter import STRATEGIES, Adapter
 from tuya2ildevice.tuya.model import DpSpec
 
 here = pathlib.Path(__file__).parent / "golden"
 try:
-    from tuya_sharing.strategy import strategy as SDK
     import tuya_sharing.strategy_repo  # noqa: F401  (registers strategies)
+    from tuya_sharing.strategy import strategy as SDK
 except ImportError:                       # the SDK is the oracle; without it these tests cannot run
     import pytest
     pytest.skip("tuya_sharing (tuya-device-sharing-sdk==0.2.15) not installed", allow_module_level=True)
@@ -23,9 +25,8 @@ def sdk_read(local_strategy, status_range, dpid, raw):
     m = local_strategy[dpid]
     code, value = SDK.convert(m["value_convert"], (m["status_code"], raw), m["config_item"])
     sr = status_range.get(code)
-    if sr and sr["type"] == "Enum":
-        if value not in json.loads(sr["values"]).get("range", []):
-            return None
+    if sr and sr["type"] == "Enum" and value not in json.loads(sr["values"]).get("range", []):
+        return None
     return {code: value}
 
 
@@ -53,8 +54,8 @@ def test_read_matches_sdk():
             for raw in samples(meta["value_convert"], meta["config_item"]):
                 try:
                     want = sdk_read(ls, rng, dpid, raw)
-                except Exception:
-                    continue          # SDK itself raises on this input: adapter drops (checked below)
+                except Exception:  # noqa: BLE001, S112  (the SDK itself raises on this input: adapter drops it, checked below)
+                    continue
                 assert ad.read({dpid: raw}) == (want or {}), (code, dpid, meta["value_convert"], raw)
                 n += 1
     assert n > 200, n
@@ -62,7 +63,14 @@ def test_read_matches_sdk():
 
 
 def test_write_roundtrips():
-    from tuya2ildevice.tuya.adapter import _r_color, _r_contr, _r_scene, _w_color, _w_contr, _w_scene
+    from tuya2ildevice.tuya.adapter import (
+        _r_color,
+        _r_contr,
+        _r_scene,
+        _w_color,
+        _w_contr,
+        _w_scene,
+    )
     for raw in ("00b403e803e8", "012c00ff0010"):
         assert _w_color(_r_color(raw, {}), {}) == raw
     for raw in ("1" + "00b4" + "03e8" + "03e8" + "0064" + "0100", "0" + "0000" * 5):

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
-from typing import Callable
+from collections.abc import Callable
 
 try:
     import paho.mqtt.client as mqtt

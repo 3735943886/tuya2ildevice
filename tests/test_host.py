@@ -13,8 +13,16 @@ import pytest
 from helpers import light
 
 from tuya2ildevice import BridgeCommand, Connected, Hub, IlTopics, Message
-from tuya2ildevice.host import DeviceWatcher, InProcessTransport, OverrideWatcher, Runner, load_overrides, parse_devices
+from tuya2ildevice.host import (
+    DeviceWatcher,
+    InProcessTransport,
+    OverrideWatcher,
+    Runner,
+    load_overrides,
+    parse_devices,
+)
 from tuya2ildevice.host.memory import matches
+
 
 def lamp(dev_id):
     d = light()
@@ -52,7 +60,7 @@ async def running():
 
 
 async def test_start_publishes_presence_and_descriptors_and_values_flow_both_ways(running):
-    il, runner, hub, commands = running
+    il, runner, _, commands = running
     assert il.retained["il/_producer/tuya"].payload == "online"
     assert json.loads(il.retained["il/lamp1"].payload)["kind"] == "light"
 
@@ -155,7 +163,7 @@ def test_an_overrides_directory_loads_json_v1_json_and_py(tmp_path):
 
 
 async def test_the_override_watcher_reloads_the_hub(running, tmp_path):
-    il, runner, hub, _ = running
+    il, runner, _, _ = running
     watcher = OverrideWatcher(tmp_path, runner, interval=0.01, base={"lamp1": {"device": {"label": "Desk"}}})
     (tmp_path / "lit.py").write_text(CONVERTER_PY)
     (tmp_path / "a.json").write_text(json.dumps({"p": {"converters": {"lit": {"word": "bright"}}}}))

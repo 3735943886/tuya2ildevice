@@ -6,9 +6,8 @@ import pathlib
 import fixtures  # tuya2ildevice/tests/golden
 from ildevice.core.descriptor import parse_descriptor  # il-ha core (see conftest)
 from ildevice.core.plan import plan_entities
+
 from tuya2ildevice import descriptor_of
-
-
 
 GOLDEN = pathlib.Path(__file__).resolve().parents[1] / "golden"
 
@@ -22,7 +21,7 @@ def run(**driver_kw) -> dict:
     for code in codes:
         try:
             specs = plan_entities(parse_descriptor(descriptor_of(fixtures.load(code), **driver_kw)))
-        except Exception as e:  # a crash is a finding, not a skip
+        except Exception as e:  # noqa: BLE001  (a crash is a finding, not a skip)
             errors.append((code, repr(e)[:120]))
             specs = []
         got = collections.Counter(s.platform for s in specs)

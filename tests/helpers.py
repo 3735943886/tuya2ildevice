@@ -15,7 +15,7 @@ def strat(dpid_code_type):
 
 
 def light():
-    ints = dict(unit="", min=10, max=1000, scale=0, step=1)
+    ints = {"unit": "", "min": 10, "max": 1000, "scale": 0, "step": 1}
     f = {"switch_led": fn("switch_led", "Boolean"), "bright_value_v2": fn("bright_value_v2", "Integer", **ints),
          "temp_value_v2": fn("temp_value_v2", "Integer", **ints)}
     return {"id": "lamp1", "category": "dj", "product_id": "p", "name": "Lamp", "product_name": "Bulb",

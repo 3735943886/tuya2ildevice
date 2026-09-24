@@ -4,8 +4,26 @@ from __future__ import annotations
 from typing import Any
 
 from . import codecs, ops
-from .model import BITMAP, BOOLEAN, ENUM, INTEGER, JSON, RAW, STRING, DeviceSchema, DpRef, resolve
-from .runtime import ActionDPCodeNotFound, EntityPlan, HostEnv, WriteRejected, builder, identity
+from .model import (
+    BITMAP,
+    BOOLEAN,
+    ENUM,
+    INTEGER,
+    JSON,
+    RAW,
+    STRING,
+    DeviceSchema,
+    DpRef,
+    resolve,
+)
+from .runtime import (
+    ActionDPCodeNotFound,
+    EntityPlan,
+    HostEnv,
+    WriteRejected,
+    builder,
+    identity,
+)
 from .units import resolve_unit
 
 
@@ -158,7 +176,7 @@ def _wrapped_sensor(schema, env, desc, dpcode, ident):
             code = r.code
             _finish_sensor(schema, env, desc, ident, desc.get("device_class"), None, None)
             ident["kind"] = "wind_direction"
-            def read(st):
+            def read(st, code=code):
                 return {"native_value": None if st.get(code) is None else codecs.WIND_DIRECTIONS.get(st.get(code))}
             return EntityPlan("sensor", desc["key"], ident, {"main": r}, (code,), read)
         m = re.fullmatch(r"Electricity(\w+?)(Raw|Json|HexString)Wrapper", w)
@@ -678,8 +696,8 @@ def vacuum(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> EntityPl
 
 
 # --- climate -----------------------------------------------------------------------
-import collections  # noqa: E402
-import json  # noqa: E402
+import collections
+import json
 
 _C_ALIASES = {"°c", "c", "celsius", "℃"}
 _F_ALIASES = {"°f", "f", "fahrenheit", "℉"}

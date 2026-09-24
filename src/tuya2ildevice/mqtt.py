@@ -17,8 +17,21 @@ from dataclasses import dataclass
 from typing import Any
 
 from .driver import TuyaDriver
-from .io import (Absent, CancelTimer, Command, Connected, Descriptor, Disconnected, Event, Message, Reject, SendMessage,
-                 SetTimer, Timer, Value)
+from .io import (
+    Absent,
+    CancelTimer,
+    Command,
+    Connected,
+    Descriptor,
+    Disconnected,
+    Event,
+    Message,
+    Reject,
+    SendMessage,
+    SetTimer,
+    Timer,
+    Value,
+)
 
 IL = "il"
 

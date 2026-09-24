@@ -17,8 +17,9 @@ Loading a user's ``.py`` file is the host's job; the code runs in-process, so tr
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 
 
 @dataclass
@@ -64,7 +65,7 @@ class CoverMotion(Converter):
     the target or an end, and any readback / snapshot settle it. A snapshot never starts motion (its dps describe the
     last command, not a move in progress).
     """
-    OPTIONS = ["opening", "closing", "stopped"]
+    OPTIONS = ("opening", "closing", "stopped")
 
     def __init__(self, config: dict | None = None):
         c = config or {}

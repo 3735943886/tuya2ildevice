@@ -11,8 +11,9 @@ from __future__ import annotations
 
 import colorsys
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 
 from .tuya import ops
 from .tuya.platforms import COVER_FEATURES, VAC_FEATURES
@@ -71,7 +72,7 @@ def _view(plan: EntityPlan, key: str, conv: Callable[[Any], Any] = lambda x: x):
 def _to_hex(hs) -> str:
     # a device can report beyond its scale (colour_data `s: 1000` read on the 0..255 scale): clamp, or the rgb goes negative
     r, g, b = colorsys.hsv_to_rgb(hs[0] % 360 / 360, min(100, max(0, hs[1])) / 100, 1)
-    return "#%02x%02x%02x" % (round(r * 255), round(g * 255), round(b * 255))
+    return f"#{round(r * 255):02x}{round(g * 255):02x}{round(b * 255):02x}"
 
 
 def _from_hex(s: str) -> tuple[float, float]:
@@ -268,13 +269,13 @@ def _fan(b: _Builder, plan: EntityPlan) -> None:
 
 
 def _siren(b: _Builder, plan: EntityPlan) -> None:
-    pre, g = b.composite(plan)
+    _, g = b.composite(plan)
     b.add(plan.key, {"type": "binary", "rw": True, "role": "on", **g}, plan, read=_view(plan, "is_on"),
           write=lambda v, s: plan.write("turn_on" if v else "turn_off", {}, s))
 
 
 def _valve(b: _Builder, plan: EntityPlan) -> None:
-    pre, g = b.composite(plan)
+    _, g = b.composite(plan)
     b.add(plan.key, {"type": "binary", "rw": True, "role": "opened", **g}, plan,
           read=_view(plan, "is_closed", lambda x: not x),
           write=lambda v, s: plan.write("open" if v else "close", {}, s))
@@ -377,7 +378,7 @@ def assemble(schema, plans: list[EntityPlan], device_info: dict[str, Any], *, al
             _COMPOSITE[plan.platform](b, plan)
         else:
             _simple(b, plan)
-    for name, bd in b.bindings.items():
+    for bd in b.bindings.values():
         if bd.plan.slot_kind == "delta" or bd.plan.slot_kind == "event":
             bd.slot = StateSlot()
     props = {"available": {"type": "binary", "role": "available"}, **b.props}

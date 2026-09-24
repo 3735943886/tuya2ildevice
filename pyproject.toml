@@ -32,3 +32,6 @@ include = ["src", "tests", "examples", "scripts", "docs", "README.md", "LICENSE"
 asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["src"]
+
+[tool.ruff]
+required-version = ">=0.16"      # CI pins 0.16.8; older ones disagree on some rules

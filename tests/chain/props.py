@@ -7,9 +7,8 @@ import pathlib
 import fixtures
 from ildevice.core.descriptor import parse_descriptor
 from ildevice.core.plan import plan_entities
+
 from tuya2ildevice import descriptor_of
-
-
 
 GOLDEN = pathlib.Path(__file__).resolve().parents[1] / "golden"
 
