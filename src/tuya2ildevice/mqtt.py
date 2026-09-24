@@ -251,7 +251,8 @@ class Hub:
         pubs: list = []
         for o in outs:
             if isinstance(o, Descriptor):
-                pubs.append(Publish(IL, self.il.descriptor(id), json.dumps(o.desc, ensure_ascii=False), True, 1))
+                desc = {**o.desc, "source": self.il.source}          # M-12: the presence topic's `<source>`
+                pubs.append(Publish(IL, self.il.descriptor(id), json.dumps(desc, ensure_ascii=False), True, 1))
             elif isinstance(o, Value):
                 pubs.append(Publish(IL, self.il.state(id, o.prop), encode_value(o.value), True, 1))
             elif isinstance(o, Absent):

@@ -69,7 +69,8 @@ def _view(plan: EntityPlan, key: str, conv: Callable[[Any], Any] = lambda x: x):
 
 
 def _to_hex(hs) -> str:
-    r, g, b = colorsys.hsv_to_rgb(hs[0] / 360, hs[1] / 100, 1)
+    # a device can report beyond its scale (colour_data `s: 1000` read on the 0..255 scale): clamp, or the rgb goes negative
+    r, g, b = colorsys.hsv_to_rgb(hs[0] % 360 / 360, min(100, max(0, hs[1])) / 100, 1)
     return "#%02x%02x%02x" % (round(r * 255), round(g * 255), round(b * 255))
 
 
@@ -171,12 +172,12 @@ def _light(b: _Builder, plan: EntityPlan) -> None:
     if "brightness" in r or "color_data" in r:
         b.add(pre + "brightness", {"type": "number", "rw": True, "role": "brightness", "unit": "%", "min": 1,
                                    "max": 100, "step": 1, **g}, plan,
-              read=_view(plan, "brightness", lambda x: max(1, round(x * 100 / 255))),
+              read=_view(plan, "brightness", lambda x: min(100, max(1, round(x * 100 / 255)))),
               write=lambda v, s: plan.write("turn_on", {"brightness": max(1, round(v * 255 / 100))}, s))
     if "color_temp" in r:
         b.add(pre + "color_temperature", {"type": "number", "rw": True, "role": "color_temperature", "unit": "K",
                                           "min": kelvin[0], "max": kelvin[1], "step": 1, **g}, plan,
-              read=_view(plan, "color_temp_kelvin"),
+              read=_view(plan, "color_temp_kelvin", lambda x: min(kelvin[1], max(kelvin[0], x))),
               write=lambda v, s: plan.write("turn_on", {"color_temp_kelvin": v}, s))
     if "color_data" in r:
         b.add(pre + "color", {"type": "text", "rw": True, "role": "color", **g}, plan,
@@ -246,8 +247,9 @@ def _fan(b: _Builder, plan: EntityPlan) -> None:
     pre, g = b.composite(plan)
     r = plan.roles
     if "switch" in r:
-        b.add(plan.key, {"type": "binary", "rw": True, "role": "on", **g}, plan, read=_view(plan, "is_on"),
-              write=lambda v, s: plan.write("turn_on" if v else "turn_off", {}, s))
+        # core's fan entity has no key: name the power after its dp, as a light's is (`switch_led`)
+        b.add(plan.key or r["switch"].code, {"type": "binary", "rw": True, "role": "on", **g}, plan,
+              read=_view(plan, "is_on"), write=lambda v, s: plan.write("turn_on" if v else "turn_off", {}, s))
     if "speed" in r:
         b.add(pre + "speed", {"type": "number", "rw": True, "role": "speed", "unit": "%", "min": 1, "max": 100, "step": 1, **g}, plan,
               read=_view(plan, "percentage"), write=lambda v, s: plan.write("set_percentage", {"percentage": v}, s))
@@ -302,7 +304,7 @@ def _climate(b: _Builder, plan: EntityPlan) -> None:
     role = (lambda x: {"role": x}) if celsius else (lambda x: {})
     switch, mode = r.get("switch"), r.get("hvac_mode")
     if switch is not None:
-        b.add(plan.key, {"type": "binary", "rw": True, **role("on"), **g}, plan,
+        b.add(plan.key or switch.code, {"type": "binary", "rw": True, **role("on"), **g}, plan,
               read=lambda st, slot: (None if (h := plan.read(st)["hvac_mode"]) is None else h != "off"),
               write=lambda v, s: plan.write("turn_on" if v else "turn_off", {}, s))
     if mode is not None:
