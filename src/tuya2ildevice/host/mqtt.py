@@ -23,7 +23,9 @@ class MqttTransport:
     (in the event loop) after every (re)connect, which is where a host republishes what a Last Will took away."""
 
     def __init__(self, host: str, port: int = 1883, *, client_id: str | None = None, username: str | None = None,
-                 password: str | None = None, will: tuple[str, str, int, bool] | None = None) -> None:
+                 password: str | None = None, will: tuple[str, str, int, bool] | None = None,
+                 tls: bool = False) -> None:
+        """`tls`: connect with TLS and the system's CA certificates (an `mqtts://` broker)."""
         self.host, self.port = host, port
         self.on_connect: list[Callable[[], None]] = []
         self._subs: list[tuple[str, int, Callback]] = []
@@ -35,6 +37,8 @@ class MqttTransport:
         if will:
             topic, payload, qos, retain = will
             self._client.will_set(topic, payload, qos, retain)
+        if tls:
+            self._client.tls_set()
         self._client.on_connect = self._on_connect
         self._client.on_disconnect = self._on_disconnect
         self._client.on_message = self._on_message

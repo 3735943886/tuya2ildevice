@@ -88,8 +88,9 @@ class Runner:
             done["changed" if device_id in have else "added"].append(device_id)
         return done
 
-    def reload(self, overrides: dict | None, converters: dict | None = None) -> None:
-        self.run(self.hub.reload(overrides, converters))
+    def reload(self, overrides: dict | None, converters: dict | None = None,
+               converter_types: dict | None = None) -> None:
+        self.run(self.hub.reload(overrides, converters, converter_types))
 
     # ---- plumbing ----------------------------------------------------------------------
 

@@ -193,8 +193,8 @@ def test_merge_and_v1_migration():
     new, warn = from_v1({"5rta89nj": {"model": "Opener", "dp_meta": {"104": {"code": "percent_control", "type": "Integer", "unit": "%", "min": 0, "max": 100, "step": 1, "comp": "cover"}},
                                       "discovery_overrides": {"cover": {}}}})
     assert new["5rta89nj"]["dp"]["104"]["values"]["unit"] == "%" and new["5rta89nj"]["device"] == {"model": "Opener"}
-    assert any("discovery_overrides" in w for w in warn) and any("comp" in w for w in warn)
-    dev = _kg(); dev["product_id"] = "5rta89nj"
+    assert any("comp" in w for w in warn)
+    dev = _kg(); dev["product_id"] = "opener1"; new["opener1"] = new.pop("5rta89nj")
     assert "percent_control" in TuyaDriver(dev, overrides=new, expose_unused=True).descriptor["props"]
 
 

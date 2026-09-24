@@ -39,43 +39,81 @@ d.handle(now, Command("switch_1", "off"))    # -> [SendMessage("set", {"dps": {"
 
 ## User overrides
 
+Tuya devices are fragmented: a cloud schema can give a dp a non-standard code, leave a dp out, speak other words
+(`on`/`off`/`pause` instead of `open`/`close`/`stop`) or run a position the other way. Overrides fix that in Tuya's own
+terms, before classification, so the fixed device goes through the same tables as any other and every IL consumer
+(il-ha, a discovery publisher, ...) sees the fix.
+
 `TuyaDriver(device, overrides=mapping)` / `Hub(devices, overrides=mapping)`; `mapping` is `{product_id or device id: block}`,
-already loaded (the host reads files; `merge_all([...])` merges several, later wins). Details and the block format are in
-[overrides.py](src/tuya2ildevice/overrides.py):
+already loaded (`merge_all([...])` merges several, later wins; `tuya2ildevice.host.load_overrides` reads a directory).
+Details and the block format are in [overrides.py](src/tuya2ildevice/overrides.py):
 
 ```json
-{ "5rta89nj": {
-    "dp":     {"104": {"code": "percent_control", "type": "Integer", "values": {"min": 0, "max": 100, "scale": 0, "step": 1}}},
-    "remove": ["cycle_time"],
+{ "<product_id>": {
+    "dp":     {"104": {"code": "percent_control", "type": "Integer", "values": {"min": 0, "max": 100, "scale": 0, "step": 1}},
+               "101": {"code": "control"}},
+    "remove": ["percent_state"],
+    "category": "cl",
+    "remap":  {"control": {"alias": {"on": "open", "off": "close", "pause": "stop"}},
+               "percent_control": {"invert": true}},
     "props":  {"countdown_1": {"label": "Timer", "category": "config", "rw": false}},
-    "device": {"model": "Sliding Window Opener"} } }
+    "device": {"model": "Sliding Window Opener"},
+    "converters": {"cover_motion": {"settle": 5}},
+    "expose_unused": true } }
 ```
 
-`dp`, `remove`, `category` patch the schema before classification (a defined dp is classified like any other);
-`props` (by property name) and `device` patch the descriptor. Unknown keys raise `OverrideError`.
-`Hub.reload(mapping)` applies new overrides live: republishes changed descriptors and clears removed properties.
-`from_v1(custom_converters)` converts rustuya-homeassistant `dp_meta`; `discovery_overrides` (HA payload fields) are
-dropped with a warning.
+| key | fixes |
+|---|---|
+| `dp` with a `type` | a dp the schema lacks or describes wrongly (defined like a quirk's `DefineDp`) |
+| `dp` with only a `code` | a dp with a non-standard code: renamed, its type, range and value strategy kept |
+| `remove` | a dp that should not be used (the tables then fall back, e.g. position read from the target) |
+| `category` | the Tuya category the tables are chosen by |
+| `remap.<code>.alias` | other words: device value -> standard value, both ways (an Enum's range is translated too) |
+| `remap.<code>.invert` | the other direction: a Boolean negated, an Integer mirrored in its range |
+| `props`, `device` | the finished descriptor: label, class, category, unit, read only, hidden; device label/model |
+| `converters` | code converters by name (below) |
+| `expose_unused` | this device only: every dp no table claims gets a property of its own |
+
+Unknown keys raise `OverrideError`. `Hub.reload(mapping)` applies new overrides live: republishes changed descriptors
+and clears removed properties.
+
+The package ships a curated set, [overrides.json](src/tuya2ildevice/overrides.json) (`overrides.BUILTIN`), for
+products known to need it; a user's block for the same product wins key by key, and `use_quirks=False` turns it off
+with the quirks. `from_v1(custom_converters)` converts rustuya-homeassistant v1 files: `dp_meta`, `model` and
+`discovery_overrides.cover` (dp roles, command words, inversion, derived state) map to the keys above; other
+`discovery_overrides` (Home Assistant payload fields) are dropped with a warning.
 
 ## Code converters
 
-The equivalent of v1's `custom_converters/*.py`: a per-device `Converter` object sees the driver's dp state on every
-packet and returns derived property values (and timer requests, since it cannot read a clock). See
+The equivalent of v1's `custom_converters/*.py`: a per-device `Converter` object sees the driver's dp state (after
+`remap`) on every packet and returns derived property values (and timer requests, since it cannot read a clock). See
 [converters.py](src/tuya2ildevice/converters.py).
 
 ```python
 class MyConverter(Converter):
+    def __init__(self, config): ...
     def props(self):  return {"motion": {"type": "select", "role": "motion", "options": ["opening", "closing", "stopped"]}}
     def update(self, now, codes, changed, active):  return {"motion": "stopped"}      # or Result(values=..., timers=...)
 
-TuyaDriver(device, converters={"<product_id or device id>": [lambda device: MyConverter()]})
+TuyaDriver(device, converters={"<product_id or device id>": [lambda device: MyConverter({})]})
+TuyaDriver(device, converter_types={"my": MyConverter}, overrides={"<product_id>": {"converters": {"my": {}}}})
 ```
 
 Built-in ones are named in an override block: `{"<product_id>": {"converters": {"cover_motion": {"settle": 5}}}}`.
 `cover_motion` (ported from v1's `00_curtain.py`) derives the cover's `motion` role (opening / closing / stopped) from the
 control, set-position and position dps; a snapshot never starts motion. Timers come out as `SetTimer` (driver) or
-`Schedule` (`Hub`); the host calls back with `Timer` / `hub.on_timer(now, id, name)`. Loading a user's `.py` file is the
-host's job; the code runs in-process.
+`Schedule` (`Hub`); the host calls back with `Timer` / `hub.on_timer(now, id, name)`.
+
+## Overrides as files
+
+`tuya2ildevice.host.load_overrides(path)` reads a `custom_converters/` directory (or one `.json` file) and
+`OverrideWatcher(path, runner, base=...)` follows it, reloading the Hub when a file changes:
+
+- `*.json`: override mappings, deep-merged in filename order (`99_local.json` refines `10_base.json`); v1 files are
+  converted with `from_v1`.
+- `*.py`: define `CONVERTERS = {"name": factory}`; an override block turns one on by name. The code runs in-process.
+  A v1 plugin file (`setup(api)`) is reported, not loaded.
+- A bad file is reported and left out; the rest still loads. Overrides the Hub refuses leave the ones in effect.
 
 ## tuya2ildevice <-> an IL host over MQTT
 

@@ -13,7 +13,7 @@ import pytest
 from helpers import curtain, light
 
 from tuya2ildevice import BridgeCommand, Connected, Hub, IlTopics, Message
-from tuya2ildevice.host import DeviceWatcher, InProcessTransport, Runner, parse_devices
+from tuya2ildevice.host import DeviceWatcher, InProcessTransport, OverrideWatcher, Runner, load_overrides, parse_devices
 from tuya2ildevice.host.memory import matches
 
 def lamp(dev_id):
@@ -117,6 +117,65 @@ async def test_the_watcher_follows_the_file_and_keeps_devices_when_it_cannot_be_
     assert watcher.check() and set(hub.records) == {"lamp1"}
     path.write_text(json.dumps([lamp("lamp1"), lamp("late")]))
     assert watcher.check() and set(hub.records) == {"lamp1", "late"}
+
+
+CONVERTER_PY = """
+from tuya2ildevice import Converter
+
+class Lit(Converter):
+    def __init__(self, cfg):
+        self.word = cfg.get("word", "on")
+
+    def props(self):
+        return {"lit": {"type": "text"}}
+
+    def update(self, now, codes, changed, active):
+        return {"lit": self.word if codes.get("switch_led") else "off"}
+
+CONVERTERS = {"lit": Lit}
+"""
+
+
+def test_an_overrides_directory_loads_json_v1_json_and_py(tmp_path):
+    (tmp_path / "10_base.json").write_text(json.dumps({"p": {"device": {"model": "A"}, "converters": {"lit": {}}}}))
+    (tmp_path / "20_v1.json").write_text(json.dumps({"q": {"model": "Old", "discovery_overrides": {"light": {}}}}))
+    (tmp_path / "99_local.json").write_text(json.dumps({"p": {"device": {"model": "B"}}}))
+    (tmp_path / "lit.py").write_text(CONVERTER_PY)
+    (tmp_path / "old_curtain.py").write_text("def setup(api):\n    pass\n")
+    (tmp_path / "broken.py").write_text("raise RuntimeError('boom')\n")
+    (tmp_path / "manifest.json").write_text("not even json")
+    loaded = load_overrides(tmp_path)
+    assert loaded.overrides == {"p": {"device": {"model": "B"}, "converters": {"lit": {}}},
+                                "q": {"device": {"model": "Old"}}}
+    assert set(loaded.converter_types) == {"lit"}
+    warned = " ".join(loaded.warnings)
+    assert "old_curtain.py" in warned and "v1 plugin" in warned and "broken.py: RuntimeError" in warned
+    assert "20_v1.json" in warned and "manifest" not in warned
+    assert load_overrides(tmp_path / "missing").overrides == {}
+
+
+async def test_the_override_watcher_reloads_the_hub(running, tmp_path):
+    il, runner, hub, _ = running
+    watcher = OverrideWatcher(tmp_path, runner, interval=0.01, base={"lamp1": {"device": {"label": "Desk"}}})
+    (tmp_path / "lit.py").write_text(CONVERTER_PY)
+    (tmp_path / "a.json").write_text(json.dumps({"p": {"converters": {"lit": {"word": "bright"}}}}))
+    assert watcher.check()
+    await runner.drain()
+    desc = json.loads(il.retained["il/lamp1"].payload)
+    assert "lit" in desc["props"] and desc["label"] == "Desk"
+    runner.on_bridge_message("lamp1", Connected())
+    runner.on_bridge_message("lamp1", Message("state", {"20": True}))
+    await runner.drain()
+    assert il.retained["il/lamp1/lit"].payload == "bright"
+    assert not watcher.check()
+    (tmp_path / "a.json").write_text(json.dumps({"p": {"converters": {"nope": {}}}}))      # refused: the old one stays
+    assert watcher.check()
+    await runner.drain()
+    assert "lit" in json.loads(il.retained["il/lamp1"].payload)["props"]
+    (tmp_path / "a.json").unlink()
+    assert watcher.check()
+    await runner.drain()
+    assert "lit" not in json.loads(il.retained["il/lamp1"].payload)["props"]
 
 
 # ---- paho against a real broker --------------------------------------------------------------------------------------

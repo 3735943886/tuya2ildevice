@@ -1,0 +1,714 @@
+{
+ "5rta89nj": {
+  "id": "dev_5rta89nj",
+  "name": "fixture",
+  "category": "mc",
+  "product_id": "5rta89nj",
+  "product_name": "Sliding Window Opener (Zigbee)",
+  "function": {},
+  "status_range": {
+   "residual_electricity": {
+    "code": "residual_electricity",
+    "type": "Integer",
+    "values": {
+     "unit": "%",
+     "min": 0,
+     "max": 100,
+     "scale": 0,
+     "step": 1
+    },
+    "report_type": "un_known"
+   }
+  },
+  "status": {
+   "residual_electricity": 85
+  },
+  "local_strategy": {
+   "4": {
+    "value_convert": "default",
+    "status_code": "residual_electricity",
+    "config_item": {
+     "statusFormat": {
+      "residual_electricity": "$"
+     },
+     "valueDesc": {
+      "unit": "%",
+      "min": 0,
+      "max": 100,
+      "scale": 0,
+      "step": 1
+     },
+     "valueType": "Integer",
+     "enumMappingMap": {},
+     "pid": "5rta89nj"
+    }
+   }
+  }
+ },
+ "f6jujmx0is5td50x": {
+  "id": "dev_f6jujmx0is5td50x",
+  "name": "fixture",
+  "category": "cl",
+  "product_id": "f6jujmx0is5td50x",
+  "product_name": "curtain motor",
+  "function": {
+   "control": {
+    "code": "control",
+    "type": "Enum",
+    "values": {
+     "range": [
+      "open",
+      "stop",
+      "close",
+      "continue"
+     ]
+    }
+   },
+   "percent_control": {
+    "code": "percent_control",
+    "type": "Integer",
+    "values": {
+     "unit": "%",
+     "min": 0,
+     "max": 100,
+     "scale": 0,
+     "step": 1
+    }
+   },
+   "control_back_mode": {
+    "code": "control_back_mode",
+    "type": "Enum",
+    "values": {
+     "range": [
+      "forward",
+      "back"
+     ]
+    }
+   }
+  },
+  "status_range": {
+   "control": {
+    "code": "control",
+    "type": "Enum",
+    "values": {
+     "range": [
+      "open",
+      "stop",
+      "close",
+      "continue"
+     ]
+    }
+   },
+   "percent_control": {
+    "code": "percent_control",
+    "type": "Integer",
+    "values": {
+     "unit": "%",
+     "min": 0,
+     "max": 100,
+     "scale": 0,
+     "step": 1
+    }
+   },
+   "percent_state": {
+    "code": "percent_state",
+    "type": "Integer",
+    "values": {
+     "unit": "%",
+     "min": 0,
+     "max": 100,
+     "scale": 0,
+     "step": 1
+    }
+   },
+   "control_back_mode": {
+    "code": "control_back_mode",
+    "type": "Enum",
+    "values": {
+     "range": [
+      "forward",
+      "back"
+     ]
+    }
+   },
+   "fault": {
+    "code": "fault",
+    "type": "Bitmap",
+    "values": {
+     "label": [
+      "motor_fault"
+     ]
+    }
+   }
+  },
+  "status": {
+   "control": "stop",
+   "percent_control": 100,
+   "percent_state": 0,
+   "control_back_mode": "forward",
+   "fault": 0
+  },
+  "local_strategy": {
+   "1": {
+    "value_convert": "default",
+    "status_code": "control",
+    "config_item": {
+     "statusFormat": {
+      "control": "$"
+     },
+     "valueDesc": {
+      "range": [
+       "open",
+       "stop",
+       "close",
+       "continue"
+      ]
+     },
+     "valueType": "Enum",
+     "enumMappingMap": {},
+     "pid": "f6jujmx0is5td50x"
+    }
+   },
+   "2": {
+    "value_convert": "default",
+    "status_code": "percent_control",
+    "config_item": {
+     "statusFormat": {
+      "percent_control": "$"
+     },
+     "valueDesc": {
+      "unit": "%",
+      "min": 0,
+      "max": 100,
+      "scale": 0,
+      "step": 1
+     },
+     "valueType": "Integer",
+     "enumMappingMap": {},
+     "pid": "f6jujmx0is5td50x"
+    }
+   },
+   "3": {
+    "value_convert": "default",
+    "status_code": "percent_state",
+    "config_item": {
+     "statusFormat": {
+      "percent_state": "$"
+     },
+     "valueDesc": {
+      "unit": "%",
+      "min": 0,
+      "max": 100,
+      "scale": 0,
+      "step": 1
+     },
+     "valueType": "Integer",
+     "enumMappingMap": {},
+     "pid": "f6jujmx0is5td50x"
+    }
+   },
+   "5": {
+    "value_convert": "default",
+    "status_code": "control_back_mode",
+    "config_item": {
+     "statusFormat": {
+      "control_back_mode": "$"
+     },
+     "valueDesc": {
+      "range": [
+       "forward",
+       "back"
+      ]
+     },
+     "valueType": "Enum",
+     "enumMappingMap": {},
+     "pid": "f6jujmx0is5td50x"
+    }
+   },
+   "12": {
+    "value_convert": "default",
+    "status_code": "fault",
+    "config_item": {
+     "statusFormat": {
+      "fault": "$"
+     },
+     "valueDesc": {
+      "label": [
+       "motor_fault"
+      ]
+     },
+     "valueType": "Bitmap",
+     "enumMappingMap": {},
+     "pid": "f6jujmx0is5td50x"
+    }
+   }
+  }
+ },
+ "h2wipnagcunsar5r": {
+  "id": "dev_h2wipnagcunsar5r",
+  "name": "fixture",
+  "category": "cl",
+  "product_id": "h2wipnagcunsar5r",
+  "product_name": "智能窗帘电机",
+  "function": {
+   "control": {
+    "code": "control",
+    "type": "Enum",
+    "values": {
+     "range": [
+      "open",
+      "stop",
+      "close",
+      "continue"
+     ]
+    }
+   },
+   "percent_control": {
+    "code": "percent_control",
+    "type": "Integer",
+    "values": {
+     "unit": "%",
+     "min": 0,
+     "max": 100,
+     "scale": 0,
+     "step": 1
+    }
+   },
+   "auto_power": {
+    "code": "auto_power",
+    "type": "Boolean",
+    "values": {}
+   }
+  },
+  "status_range": {
+   "control": {
+    "code": "control",
+    "type": "Enum",
+    "values": {
+     "range": [
+      "open",
+      "stop",
+      "close",
+      "continue"
+     ]
+    }
+   },
+   "percent_control": {
+    "code": "percent_control",
+    "type": "Integer",
+    "values": {
+     "unit": "%",
+     "min": 0,
+     "max": 100,
+     "scale": 0,
+     "step": 1
+    }
+   },
+   "percent_state": {
+    "code": "percent_state",
+    "type": "Integer",
+    "values": {
+     "unit": "%",
+     "min": 0,
+     "max": 100,
+     "scale": 0,
+     "step": 1
+    }
+   },
+   "auto_power": {
+    "code": "auto_power",
+    "type": "Boolean",
+    "values": {}
+   },
+   "work_state": {
+    "code": "work_state",
+    "type": "Enum",
+    "values": {
+     "range": [
+      "opening",
+      "closing"
+     ]
+    }
+   },
+   "situation_set": {
+    "code": "situation_set",
+    "type": "Enum",
+    "values": {
+     "range": [
+      "fully_open",
+      "fully_close"
+     ]
+    }
+   },
+   "fault": {
+    "code": "fault",
+    "type": "Bitmap",
+    "values": {
+     "label": [
+      "motor_fault"
+     ]
+    }
+   }
+  },
+  "status": {
+   "control": "open",
+   "percent_control": 81,
+   "percent_state": 100,
+   "auto_power": true,
+   "work_state": "opening",
+   "situation_set": "fully_open",
+   "fault": 0
+  },
+  "local_strategy": {
+   "1": {
+    "value_convert": "default",
+    "status_code": "control",
+    "config_item": {
+     "statusFormat": {
+      "control": "$"
+     },
+     "valueDesc": {
+      "range": [
+       "open",
+       "stop",
+       "close",
+       "continue"
+      ]
+     },
+     "valueType": "Enum",
+     "enumMappingMap": {},
+     "pid": "h2wipnagcunsar5r"
+    }
+   },
+   "2": {
+    "value_convert": "default",
+    "status_code": "percent_control",
+    "config_item": {
+     "statusFormat": {
+      "percent_control": "$"
+     },
+     "valueDesc": {
+      "unit": "%",
+      "min": 0,
+      "max": 100,
+      "scale": 0,
+      "step": 1
+     },
+     "valueType": "Integer",
+     "enumMappingMap": {},
+     "pid": "h2wipnagcunsar5r"
+    }
+   },
+   "3": {
+    "value_convert": "default",
+    "status_code": "percent_state",
+    "config_item": {
+     "statusFormat": {
+      "percent_state": "$"
+     },
+     "valueDesc": {
+      "unit": "%",
+      "min": 0,
+      "max": 100,
+      "scale": 0,
+      "step": 1
+     },
+     "valueType": "Integer",
+     "enumMappingMap": {},
+     "pid": "h2wipnagcunsar5r"
+    }
+   },
+   "6": {
+    "value_convert": "default",
+    "status_code": "auto_power",
+    "config_item": {
+     "statusFormat": {
+      "auto_power": "$"
+     },
+     "valueDesc": {},
+     "valueType": "Boolean",
+     "enumMappingMap": {},
+     "pid": "h2wipnagcunsar5r"
+    }
+   },
+   "7": {
+    "value_convert": "default",
+    "status_code": "work_state",
+    "config_item": {
+     "statusFormat": {
+      "work_state": "$"
+     },
+     "valueDesc": {
+      "range": [
+       "opening",
+       "closing"
+      ]
+     },
+     "valueType": "Enum",
+     "enumMappingMap": {},
+     "pid": "h2wipnagcunsar5r"
+    }
+   },
+   "11": {
+    "value_convert": "default",
+    "status_code": "situation_set",
+    "config_item": {
+     "statusFormat": {
+      "situation_set": "$"
+     },
+     "valueDesc": {
+      "range": [
+       "fully_open",
+       "fully_close"
+      ]
+     },
+     "valueType": "Enum",
+     "enumMappingMap": {},
+     "pid": "h2wipnagcunsar5r"
+    }
+   },
+   "12": {
+    "value_convert": "default",
+    "status_code": "fault",
+    "config_item": {
+     "statusFormat": {
+      "fault": "$"
+     },
+     "valueDesc": {
+      "label": [
+       "motor_fault"
+      ]
+     },
+     "valueType": "Bitmap",
+     "enumMappingMap": {},
+     "pid": "h2wipnagcunsar5r"
+    }
+   }
+  }
+ },
+ "3i3exuay": {
+  "id": "dev_3i3exuay",
+  "name": "fixture",
+  "category": "cl",
+  "product_id": "3i3exuay",
+  "product_name": "zemismart Zigbee curtain  motor",
+  "function": {
+   "control": {
+    "code": "control",
+    "type": "Enum",
+    "values": {
+     "range": [
+      "open",
+      "stop",
+      "close"
+     ]
+    }
+   },
+   "percent_control": {
+    "code": "percent_control",
+    "type": "Integer",
+    "values": {
+     "unit": "%",
+     "min": 0,
+     "max": 100,
+     "scale": 0,
+     "step": 1
+    }
+   },
+   "control_back_mode": {
+    "code": "control_back_mode",
+    "type": "Enum",
+    "values": {
+     "range": [
+      "forward",
+      "back"
+     ]
+    }
+   }
+  },
+  "status_range": {
+   "control": {
+    "code": "control",
+    "type": "Enum",
+    "values": {
+     "range": [
+      "open",
+      "stop",
+      "close"
+     ]
+    }
+   },
+   "percent_control": {
+    "code": "percent_control",
+    "type": "Integer",
+    "values": {
+     "unit": "%",
+     "min": 0,
+     "max": 100,
+     "scale": 0,
+     "step": 1
+    }
+   },
+   "percent_state": {
+    "code": "percent_state",
+    "type": "Integer",
+    "values": {
+     "unit": "%",
+     "min": 0,
+     "max": 100,
+     "scale": 0,
+     "step": 1
+    }
+   },
+   "control_back_mode": {
+    "code": "control_back_mode",
+    "type": "Enum",
+    "values": {
+     "range": [
+      "forward",
+      "back"
+     ]
+    }
+   },
+   "work_state": {
+    "code": "work_state",
+    "type": "Enum",
+    "values": {
+     "range": [
+      "opening",
+      "closing"
+     ]
+    }
+   },
+   "fault": {
+    "code": "fault",
+    "type": "Bitmap",
+    "values": {
+     "label": [
+      "motor_fault"
+     ]
+    }
+   }
+  },
+  "status": {
+   "control": "close",
+   "percent_control": 84,
+   "percent_state": 0,
+   "control_back_mode": false,
+   "work_state": "opening",
+   "fault": 0
+  },
+  "local_strategy": {
+   "1": {
+    "value_convert": "default",
+    "status_code": "control",
+    "config_item": {
+     "statusFormat": {
+      "control": "$"
+     },
+     "valueDesc": {
+      "range": [
+       "open",
+       "stop",
+       "close"
+      ]
+     },
+     "valueType": "Enum",
+     "enumMappingMap": {},
+     "pid": "3i3exuay"
+    }
+   },
+   "2": {
+    "value_convert": "default",
+    "status_code": "percent_control",
+    "config_item": {
+     "statusFormat": {
+      "percent_control": "$"
+     },
+     "valueDesc": {
+      "unit": "%",
+      "min": 0,
+      "max": 100,
+      "scale": 0,
+      "step": 1
+     },
+     "valueType": "Integer",
+     "enumMappingMap": {},
+     "pid": "3i3exuay"
+    }
+   },
+   "3": {
+    "value_convert": "default",
+    "status_code": "percent_state",
+    "config_item": {
+     "statusFormat": {
+      "percent_state": "$"
+     },
+     "valueDesc": {
+      "unit": "%",
+      "min": 0,
+      "max": 100,
+      "scale": 0,
+      "step": 1
+     },
+     "valueType": "Integer",
+     "enumMappingMap": {},
+     "pid": "3i3exuay"
+    }
+   },
+   "5": {
+    "value_convert": "default",
+    "status_code": "control_back_mode",
+    "config_item": {
+     "statusFormat": {
+      "control_back_mode": "$"
+     },
+     "valueDesc": {
+      "range": [
+       "forward",
+       "back"
+      ]
+     },
+     "valueType": "Enum",
+     "enumMappingMap": {},
+     "pid": "3i3exuay"
+    }
+   },
+   "7": {
+    "value_convert": "default",
+    "status_code": "work_state",
+    "config_item": {
+     "statusFormat": {
+      "work_state": "$"
+     },
+     "valueDesc": {
+      "range": [
+       "opening",
+       "closing"
+      ]
+     },
+     "valueType": "Enum",
+     "enumMappingMap": {},
+     "pid": "3i3exuay"
+    }
+   },
+   "10": {
+    "value_convert": "default",
+    "status_code": "fault",
+    "config_item": {
+     "statusFormat": {
+      "fault": "$"
+     },
+     "valueDesc": {
+      "label": [
+       "motor_fault"
+      ]
+     },
+     "valueType": "Bitmap",
+     "enumMappingMap": {},
+     "pid": "3i3exuay"
+    }
+   }
+  }
+ }
+}

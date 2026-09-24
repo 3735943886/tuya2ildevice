@@ -170,13 +170,17 @@ class Hub:
         pubs.append(Publish(IL, self.il.descriptor(device_id), "", True, 1))
         return pubs
 
-    def reload(self, overrides: dict | None, converters: dict | None = None) -> list:
-        """Apply new user overrides (see overrides.py). A device whose descriptor changed gets a fresh driver: its
-        removed properties are cleared (M-11), the new descriptor is published, and the bridge is asked for its
-        state again. Raises `OverrideError` (changing nothing) if the overrides are invalid."""
+    def reload(self, overrides: dict | None, converters: dict | None = None,
+               converter_types: dict | None = None) -> list:
+        """Apply new user overrides (see overrides.py), and with them new code converters (`converters` by product or
+        device id, `converter_types` by name; each left as it was when None). A device whose descriptor changed gets a
+        fresh driver: its removed properties are cleared (M-11), the new descriptor is published, and the bridge is
+        asked for its state again. Raises `OverrideError` (changing nothing) if the overrides are invalid."""
         kw = {**self._kw, "overrides": overrides}
         if converters is not None:
             kw["converters"] = converters
+        if converter_types is not None:
+            kw["converter_types"] = converter_types
         fresh = {i: TuyaDriver(d, **kw) for i, d in self._devices.items()}          # all or nothing
         pubs: list = []
         for i, new in fresh.items():

@@ -140,11 +140,42 @@ STRATEGIES = {
 
 
 @dataclass
+class Remap:
+    """A user's fix for a dp that speaks a different vocabulary than the tables expect (overrides `remap`), applied
+    after the read strategy and before the write strategy. `alias`: device value -> standard value (a bijection;
+    values not listed pass through). `invert`: a Boolean is negated, an Integer mirrored inside `[lo, hi]`."""
+    alias: dict = field(default_factory=dict)
+    invert: bool = False
+    bounds: tuple[float, float] | None = None       # Integer range, raw units, for `invert`
+
+    def _flip(self, v: Any) -> Any:
+        if not self.invert:
+            return v
+        if isinstance(v, bool):
+            return not v
+        if isinstance(v, (int, float)) and self.bounds is not None:
+            lo, hi = self.bounds
+            out = lo + hi - v
+            return int(out) if isinstance(v, int) and float(out).is_integer() else out
+        return v
+
+    def read(self, v: Any) -> Any:
+        if isinstance(v, str) and v in self.alias:
+            v = self.alias[v]
+        return self._flip(v)
+
+    def write(self, v: Any) -> Any:
+        v = self._flip(v)
+        return next((dev for dev, std in self.alias.items() if std == v), v)
+
+
+@dataclass
 class Adapter:
     """dp-id <-> code translation + value conversion for one device."""
     entries: dict[str, tuple[str, str, dict]] = field(default_factory=dict)   # dpid -> (code, strategy, config_item)
     enum_ranges: dict[str, list] = field(default_factory=dict)                # code -> range (Enum guard)
     unsupported: dict[str, str] = field(default_factory=dict)                 # dpid -> strategy name (passthrough)
+    remaps: dict[str, "Remap"] = field(default_factory=dict)                  # code -> user value fix (overrides `remap`)
 
     @classmethod
     def from_local_strategy(cls, local_strategy: dict, status_range: dict[str, Any] | None = None) -> "Adapter":
@@ -168,6 +199,10 @@ class Adapter:
                     pass
         return a
 
+    def codes(self) -> dict[str, str]:
+        """{dp id: code}."""
+        return {d: e[0] for d, e in self.entries.items()}
+
     def code_for_dp(self, dpid) -> str | None:
         e = self.entries.get(str(dpid))
         return e[0] if e else None
@@ -188,6 +223,8 @@ class Adapter:
                 value = STRATEGIES[name][0](raw, ci)
             except (ValueError, TypeError, KeyError, IndexError):
                 continue
+            if code in self.remaps:
+                value = self.remaps[code].read(value)
             rng = self.enum_ranges.get(code)
             if rng is not None and value not in rng:
                 continue
@@ -203,6 +240,7 @@ class Adapter:
             if dpid is None:
                 missing.append(c["code"])
                 continue
-            _, name, ci = self.entries[dpid]
-            dps[dpid] = STRATEGIES[name][1](c["value"], ci)
+            code, name, ci = self.entries[dpid]
+            value = self.remaps[code].write(c["value"]) if code in self.remaps else c["value"]
+            dps[dpid] = STRATEGIES[name][1](value, ci)
         return dps, missing

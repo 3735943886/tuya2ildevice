@@ -64,29 +64,35 @@ class TuyaDriver:
     `dpmap`: extra ``{dp id: code}`` for a device that has no `local_strategy`.
     `overrides`: user overrides (see `overrides.py`), a ``{product_id or device id: block}`` mapping.
     `expose_unused`: give every dp no platform table claimed a property of its own (as rustuya-homeassistant v1 did); off by default, which is what Home Assistant core's tuya integration does.
-    `allow_hazardous`: also offer writes for a garage door or gate cover (il.md S-1); off by default."""
+    `allow_hazardous`: also offer writes for a garage door or gate cover (il.md S-1); off by default.
+    `converter_types`: extra named converters (``{name: factory(config) -> Converter}``, e.g. from a user's `.py`
+    files) that an override block can name in `converters`, next to the built-in ones.
+    `use_quirks`: the built-in quirks and the built-in overrides (`overrides.BUILTIN`); on by default."""
 
     def __init__(self, device: dict, *, env: HostEnv | None = None, use_quirks: bool = True,
                  dpmap: dict[str, str] | None = None, allow_hazardous: bool = False,
                  expose_unused: bool = False, overrides: dict | None = None,
-                 converters: dict | None = None):
+                 converters: dict | None = None, converter_types: dict | None = None):
         schema = schema_of(device)
         quirk = quirk_for(schema.product_id) if use_quirks else None
         if quirk:
             schema = apply_quirk(schema, quirk)
             schema.status = apply_status_quirk(quirk, schema.status)
-        block = ov.find(overrides, device)
-        schema, removed = ov.patch_schema(schema, block)
+        types = {**BUILTIN, **(converter_types or {})}
+        block = ov.find(overrides, device, types, builtin=use_quirks)
+        dpcodes = {**{str(k): v for k, v in schema.dpmap.items()}, **{str(k): v for k, v in (dpmap or {}).items()},
+                   **Adapter.from_local_strategy(device.get("local_strategy") or {}).codes()}
+        schema, removed = ov.patch_schema(schema, block, dpcodes)
         self.adapter = Adapter.from_local_strategy(device.get("local_strategy") or {}, schema.status_range)
         for dpid, code in {**{str(k): v for k, v in schema.dpmap.items()}, **(dpmap or {})}.items():
             self.adapter.entries.setdefault(str(dpid), (code, "default", {}))
-        ov.patch_adapter(self.adapter, block, removed)
+        ov.patch_adapter(self.adapter, block, removed, schema)
         plans = classify(schema, env or default_env()).entities
-        if expose_unused:
+        if block.get("expose_unused", expose_unused):
             used = {c for p in plans if p.platform not in UNSUPPORTED for c in p.depends_on}
             plans = plans + unused_plans(schema, self.adapter.entries, used)
         self.assembly: Assembly = assemble(schema, plans, device_info(schema, quirk), allow_hazardous=allow_hazardous)
-        self.converters: list[Converter] = self._make_converters(device, block, converters)
+        self.converters: list[Converter] = self._make_converters(device, block, converters, types)
         for conv in self.converters:
             for name, definition in conv.props().items():
                 if name in self.assembly.descriptor["props"] or "rw" in definition:
@@ -120,7 +126,7 @@ class TuyaDriver:
 
     # -- internals ------------------------------------------------------------
     @staticmethod
-    def _make_converters(device: dict, block: dict, registered: dict | None) -> list[Converter]:
+    def _make_converters(device: dict, block: dict, registered: dict | None, types: dict) -> list[Converter]:
         out: list[Converter] = []
         for key in (device.get("product_id"), device.get("id")):
             fs = (registered or {}).get(key) if key else None
@@ -128,7 +134,7 @@ class TuyaDriver:
                 out.append(f(device))
         for name, cfg in (block.get("converters") or {}).items():
             try:
-                out.append(BUILTIN[name](cfg))
+                out.append(types[name](cfg))
             except ValueError as e:
                 raise ov.OverrideError(str(e)) from e
         return out
