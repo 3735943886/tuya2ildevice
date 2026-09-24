@@ -1,10 +1,13 @@
 """Adapter.read == tuya_sharing Manager._on_device_report (SDK as oracle; needs tuya_sharing) + write round-trips.
 Run with the oracle venv (tuya-device-sharing-sdk==0.2.15)."""
-import json, pathlib, random, sys
-here = pathlib.Path(__file__).parent / "golden"
+import json
+import pathlib
+import random
 import fixtures
 from tuya2ildevice.tuya.adapter import Adapter, STRATEGIES
 from tuya2ildevice.tuya.model import DpSpec
+
+here = pathlib.Path(__file__).parent / "golden"
 try:
     from tuya_sharing.strategy import strategy as SDK
     import tuya_sharing.strategy_repo  # noqa: F401  (registers strategies)
@@ -29,7 +32,8 @@ def sdk_read(local_strategy, status_range, dpid, raw):
 def samples(strategy, ci):
     base = [None, "", 0, 1, 2, "0", "1", "2", "on", "off", "memory", "single_click", "long_press", True, False, 220]
     if strategy.startswith("dj_v2"):
-        hx = lambda n: "".join(random.choice("0123456789abcdef") for _ in range(n))
+        def hx(n):
+            return "".join(random.choice("0123456789abcdef") for _ in range(n))
         return base + [hx(12), "00b403e803e8", hx(21), hx(2 + 26 * 3), hx(2)]
     return base
 
@@ -47,8 +51,10 @@ def test_read_matches_sdk():
             if meta["value_convert"] not in STRATEGIES:
                 continue
             for raw in samples(meta["value_convert"], meta["config_item"]):
-                try: want = sdk_read(ls, rng, dpid, raw)
-                except Exception: continue          # SDK itself raises on this input: adapter drops (checked below)
+                try:
+                    want = sdk_read(ls, rng, dpid, raw)
+                except Exception:
+                    continue          # SDK itself raises on this input: adapter drops (checked below)
                 assert ad.read({dpid: raw}) == (want or {}), (code, dpid, meta["value_convert"], raw)
                 n += 1
     assert n > 200, n
@@ -85,4 +91,6 @@ def test_statusformat_key_and_unsupported_and_enum_guard():
 
 if __name__ == "__main__":
     for n, f in list(globals().items()):
-        if n.startswith("test_"): f(); print("ok", n)
+        if n.startswith("test_"):
+            f()
+            print("ok", n)

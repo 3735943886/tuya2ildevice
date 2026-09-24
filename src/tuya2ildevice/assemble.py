@@ -144,10 +144,12 @@ def _simple(b: _Builder, plan: EntityPlan) -> None:
         if i.get("kind") == "enum":
             opts = list(i.get("options") or plan.roles["main"].spec.range)
             d.update(type="select", options=opts)
-            conv = lambda x, o=opts: x if x in o else None       # V-3
+            def conv(x, o=opts):
+                return x if x in o else None       # V-3
         elif i.get("kind") == "text":
             d["type"] = "text"
-            conv = lambda x: x
+            def conv(x):
+                return x
         else:
             d["type"] = "number"
             if u := _unit(i.get("suggested_unit") or i.get("native_unit")):

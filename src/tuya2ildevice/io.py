@@ -1,7 +1,7 @@
 """Driver inputs and outputs (il.md section 8) as plain data. No behaviour, no I/O."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 

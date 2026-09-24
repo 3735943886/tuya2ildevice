@@ -33,7 +33,6 @@ from __future__ import annotations
 import copy
 import json
 from importlib import resources
-from typing import Any
 
 from .tuya.adapter import Remap
 from .tuya.model import DeviceSchema, DpSpec, normalize_type

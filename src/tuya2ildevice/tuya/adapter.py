@@ -8,7 +8,6 @@ Any other strategy is passed through unchanged and listed in `Adapter.unsupporte
 from __future__ import annotations
 
 import json
-import re
 from dataclasses import dataclass, field
 from typing import Any
 

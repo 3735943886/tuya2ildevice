@@ -194,7 +194,9 @@ def test_merge_and_v1_migration():
                                       "discovery_overrides": {"cover": {}}}})
     assert new["5rta89nj"]["dp"]["104"]["values"]["unit"] == "%" and new["5rta89nj"]["device"] == {"model": "Opener"}
     assert any("comp" in w for w in warn)
-    dev = _kg(); dev["product_id"] = "opener1"; new["opener1"] = new.pop("5rta89nj")
+    dev = _kg()
+    dev["product_id"] = "opener1"
+    new["opener1"] = new.pop("5rta89nj")
     assert "percent_control" in TuyaDriver(dev, overrides=new, expose_unused=True).descriptor["props"]
 
 
@@ -292,7 +294,8 @@ def test_alarm_panel_states_and_arming():
     m = ids["master_mode"]
     assert _sent(d, 1, "arm_home") == {m: "home"} and _sent(d, 2, "arm_away") == {m: "arm"}
     assert _sent(d, 3, "disarm") == {m: "disarmed"}
-    vals = lambda outs: {o.prop: o.value for o in outs if isinstance(o, Value)}
+    def vals(outs):
+        return {o.prop: o.value for o in outs if isinstance(o, Value)}
     assert vals(d.handle(4, Message("state", {m: "home"})))["alarm_state"] == "armed_home"
     assert vals(d.handle(5, Message("active", {ids["master_state"]: "alarm", ids["alarm_msg"]: ""})))["alarm_state"] == "triggered"
     import fixtures

@@ -1,12 +1,13 @@
 """Compare classify() against core snapshot goldens (golden.json), per implemented platform."""
-import json, pathlib
+import json
+import pathlib
 
 import pytest
 import fixtures
 from tuya2ildevice.tuya import platforms  # noqa: F401  (registers builders)
 from tuya2ildevice import default_env
 from tuya2ildevice.tuya.model import DeviceSchema, DpSpec
-from tuya2ildevice.tuya.runtime import BUILDERS, HostEnv, classify
+from tuya2ildevice.tuya.runtime import BUILDERS, classify
 ENV = default_env()
 
 assert len(fixtures.all_codes()) == 324, 'fixtures missing'
@@ -14,7 +15,8 @@ GOLD = json.loads((pathlib.Path(__file__).parent / "golden" / "golden.json").rea
 
 def schema_of(code):
     d = fixtures.load(code)
-    mk = lambda m: {k: DpSpec(k, v["type"], v["values"], v.get("report_type")) for k, v in m.items()}
+    def mk(m):
+        return {k: DpSpec(k, v["type"], v["values"], v.get("report_type")) for k, v in m.items()}
     return DeviceSchema(d["id"], d["category"], d["product_id"], d["name"], d["product_name"], d["online"],
                         mk(d["function"]), mk(d["status_range"]), d["status"])
 
@@ -42,100 +44,138 @@ def run(platform):
         plan = classify(schema_of(code), ENV, platforms=(platform,))
         got = {e.key: e for e in plan.entities}
         want = {r["key"]: r for r in GOLD.get(code, {}).get(platform, [])}
-        for k in want.keys() - got.keys(): miss.append((code, k))
-        for k in got.keys() - want.keys(): extra.append((code, k))
+        for k in want.keys() - got.keys():
+            miss.append((code, k))
+        for k in got.keys() - want.keys():
+            extra.append((code, k))
         for k in want.keys() & got.keys():
             w, g = want[k], got[k].identity
             for gk, ik in ATTRS:
-                if w[gk] != g.get(ik): attr.append((code, k, gk, w[gk], g.get(ik)))
+                if w[gk] != g.get(ik):
+                    attr.append((code, k, gk, w[gk], g.get(ik)))
             cap = w["capabilities"] or {}
             if platform in ("number", "sensor"):
                 eu = g.get("suggested_unit") or g.get("native_unit")
-                if w["unit"] != eu and (code, k) not in HOST_DISPLAY_UNIT: attr.append((code, k, "unit", w["unit"], eu))
-                if platform == "sensor" and w["device_class"] != g.get("device_class"): pass
+                if w["unit"] != eu and (code, k) not in HOST_DISPLAY_UNIT:
+                    attr.append((code, k, "unit", w["unit"], eu))
+                if platform == "sensor" and w["device_class"] != g.get("device_class"):
+                    pass
             if platform == "sensor":
-                if cap.get("state_class") != g.get("state_class"): attr.append((code, k, "state_class", cap.get("state_class"), g.get("state_class")))
-                if cap.get("options") != g.get("options"): attr.append((code, k, "options", cap.get("options"), g.get("options")))
+                if cap.get("state_class") != g.get("state_class"):
+                    attr.append((code, k, "state_class", cap.get("state_class"), g.get("state_class")))
+                if cap.get("options") != g.get("options"):
+                    attr.append((code, k, "options", cap.get("options"), g.get("options")))
             if platform == "number":
                 for ck, ik in (("min","native_min_value"),("max","native_max_value"),("step","native_step")):
-                    if cap.get(ck) != g.get(ik): attr.append((code, k, "cap."+ck, cap.get(ck), g.get(ik)))
+                    if cap.get(ck) != g.get(ik):
+                        attr.append((code, k, "cap."+ck, cap.get(ck), g.get(ik)))
             st = schema_of(code)
             rd = got[k].read(st.status) if got[k].read else None
             if rd is not None and platform == "sensor":
                 exp, val = w["state"], rd["native_value"]
-                if not st.online: val = "unavailable"
-                elif val is None: val = "unknown"
+                if not st.online:
+                    val = "unavailable"
+                elif val is None:
+                    val = "unknown"
                 conv = g.get("suggested_unit") not in (None, g.get("native_unit")) or (code, k) in HOST_DISPLAY_UNIT
                 if not conv and exp != "unavailable":
-                    try: same = abs(float(exp) - float(val)) < 1e-6 * max(1, abs(float(exp)))
-                    except (TypeError, ValueError): same = exp == val
-                    if not same and k not in ("wind_direction",): attr.append((code, k, "state", exp, val))
+                    try:
+                        same = abs(float(exp) - float(val)) < 1e-6 * max(1, abs(float(exp)))
+                    except (TypeError, ValueError):
+                        same = exp == val
+                    if not same and k not in ("wind_direction",):
+                        attr.append((code, k, "state", exp, val))
             if rd is not None and platform in STATE_OF:
-                exp = w["state"]; val = STATE_OF[platform](rd)
-                if not st.online: val = "unavailable"
-                if val != exp: attr.append((code, k, "state", exp, val))
+                exp = w["state"]
+                val = STATE_OF[platform](rd)
+                if not st.online:
+                    val = "unavailable"
+                if val != exp:
+                    attr.append((code, k, "state", exp, val))
             if platform == "cover":
-                if int(w["supported_features"]) != g["supported_features"]: attr.append((code, k, "features", w["supported_features"], g["supported_features"]))
+                if int(w["supported_features"]) != g["supported_features"]:
+                    attr.append((code, k, "features", w["supported_features"], g["supported_features"]))
                 a = w["attributes"] or {}
                 for ak, rk in (("current_position", "current_position"), ("current_tilt_position", "current_tilt_position")):
-                    if a.get(ak) != rd[rk] and st.online: attr.append((code, k, ak, a.get(ak), rd[rk]))
+                    if a.get(ak) != rd[rk] and st.online:
+                        attr.append((code, k, ak, a.get(ak), rd[rk]))
             if platform == "humidifier":
                 a = w["attributes"] or {}
-                if int(w["supported_features"]) != g["supported_features"]: attr.append((code, k, "features", w["supported_features"], g["supported_features"]))
+                if int(w["supported_features"]) != g["supported_features"]:
+                    attr.append((code, k, "features", w["supported_features"], g["supported_features"]))
                 for ck, ik in (("min_humidity", "min_humidity"), ("max_humidity", "max_humidity")):
-                    if cap.get(ck) != g[ik]: attr.append((code, k, ck, cap.get(ck), g[ik]))
-                if cap.get("available_modes") != g.get("available_modes") and "available_modes" in cap: attr.append((code, k, "modes", cap.get("available_modes"), g.get("available_modes")))
+                    if cap.get(ck) != g[ik]:
+                        attr.append((code, k, ck, cap.get(ck), g[ik]))
+                if cap.get("available_modes") != g.get("available_modes") and "available_modes" in cap:
+                    attr.append((code, k, "modes", cap.get("available_modes"), g.get("available_modes")))
                 if w["state"] not in ("unavailable",):
                     for ak, rk in (("humidity", "target_humidity"), ("current_humidity", "current_humidity"), ("mode", "mode")):
-                        if a.get(ak) != rd[rk]: attr.append((code, k, ak, a.get(ak), rd[rk]))
+                        if a.get(ak) != rd[rk]:
+                            attr.append((code, k, ak, a.get(ak), rd[rk]))
             if platform == "alarm_control_panel" and int(w["supported_features"]) != g["supported_features"]:
                 attr.append((code, k, "features", w["supported_features"], g["supported_features"]))
             if platform == "vacuum":
                 a = w["attributes"] or {}
-                if int(w["supported_features"]) != g["supported_features"]: attr.append((code, k, "features", w["supported_features"], g["supported_features"]))
-                if a.get("fan_speed_list", []) != g["fan_speed_list"] and "fan_speed_list" in a: attr.append((code, k, "fan_speed_list", a.get("fan_speed_list"), g["fan_speed_list"]))
-                if a.get("fan_speed") != rd["fan_speed"]: attr.append((code, k, "fan_speed", a.get("fan_speed"), rd["fan_speed"]))
+                if int(w["supported_features"]) != g["supported_features"]:
+                    attr.append((code, k, "features", w["supported_features"], g["supported_features"]))
+                if a.get("fan_speed_list", []) != g["fan_speed_list"] and "fan_speed_list" in a:
+                    attr.append((code, k, "fan_speed_list", a.get("fan_speed_list"), g["fan_speed_list"]))
+                if a.get("fan_speed") != rd["fan_speed"]:
+                    attr.append((code, k, "fan_speed", a.get("fan_speed"), rd["fan_speed"]))
             if platform == "climate":
                 a = w["attributes"] or {}
-                if int(w["supported_features"]) != g["supported_features"]: attr.append((code, k, "features", w["supported_features"], g["supported_features"]))
+                if int(w["supported_features"]) != g["supported_features"]:
+                    attr.append((code, k, "features", w["supported_features"], g["supported_features"]))
                 for ck, ik in (("hvac_modes", "hvac_modes"), ("fan_modes", "fan_modes"), ("preset_modes", "preset_modes"), ("swing_modes", "swing_modes")):
-                    if a.get(ck) != g.get(ik): attr.append((code, k, ck, a.get(ck), g.get(ik)))
+                    if a.get(ck) != g.get(ik):
+                        attr.append((code, k, ck, a.get(ck), g.get(ik)))
                 if g["supported_features"] & 1:
                     for ck, ik in (("min_temp", "min_temp"), ("max_temp", "max_temp"), ("target_temp_step", "target_temperature_step")):
-                        if cap.get(ck, a.get(ck)) != g[ik]: attr.append((code, k, ck, cap.get(ck, a.get(ck)), g[ik]))
+                        if cap.get(ck, a.get(ck)) != g[ik]:
+                            attr.append((code, k, ck, cap.get(ck, a.get(ck)), g[ik]))
                 if w["state"] != "unavailable":
                     for ck, rk in (("current_temperature", "current_temperature"), ("temperature", "temperature"), ("current_humidity", "current_humidity"),
                                    ("fan_mode", "fan_mode"), ("preset_mode", "preset_mode"), ("swing_mode", "swing_mode")):
-                        if a.get(ck) != rd[rk]: attr.append((code, k, ck, a.get(ck), rd[rk]))
+                        if a.get(ck) != rd[rk]:
+                            attr.append((code, k, ck, a.get(ck), rd[rk]))
             if platform == "light":
                 a = w["attributes"] or {}
-                if sorted(cap.get("supported_color_modes", [])) != g["supported_color_modes"]: attr.append((code, k, "modes", cap.get("supported_color_modes"), g["supported_color_modes"]))
+                if sorted(cap.get("supported_color_modes", [])) != g["supported_color_modes"]:
+                    attr.append((code, k, "modes", cap.get("supported_color_modes"), g["supported_color_modes"]))
                 if w["state"] == "on":
-                    if a.get("color_mode") != rd["color_mode"]: attr.append((code, k, "color_mode", a.get("color_mode"), rd["color_mode"]))
+                    if a.get("color_mode") != rd["color_mode"]:
+                        attr.append((code, k, "color_mode", a.get("color_mode"), rd["color_mode"]))
                     # HA exposes color_temp_kelvin only in color_temp mode and hs_color only in hs mode
                     # (the other one is derived by HA), and brightness as-is
                     for ak in ("brightness",) + (("color_temp_kelvin",) if rd["color_mode"] == "color_temp" else ()):
-                        if a.get(ak) != rd[ak]: attr.append((code, k, ak, a.get(ak), rd[ak]))
+                        if a.get(ak) != rd[ak]:
+                            attr.append((code, k, ak, a.get(ak), rd[ak]))
                     hs = rd["hs_color"]
                     if rd["color_mode"] == "hs" and a.get("hs_color") is not None and (hs is None or [round(x, 3) for x in a["hs_color"]] != [round(x, 3) for x in hs]):
                         attr.append((code, k, "hs_color", a.get("hs_color"), hs))
             if platform == "fan":
-                if int(w["supported_features"]) != g["supported_features"]: attr.append((code, k, "features", w["supported_features"], g["supported_features"]))
+                if int(w["supported_features"]) != g["supported_features"]:
+                    attr.append((code, k, "features", w["supported_features"], g["supported_features"]))
                 a = w["attributes"] or {}
-                if a.get("preset_modes") != g.get("preset_modes") and "preset_modes" in a: attr.append((code, k, "preset_modes", a.get("preset_modes"), g.get("preset_modes")))
+                if a.get("preset_modes") != g.get("preset_modes") and "preset_modes" in a:
+                    attr.append((code, k, "preset_modes", a.get("preset_modes"), g.get("preset_modes")))
                 if w["state"] == "on":
                     for ak in ("percentage", "preset_mode", "oscillating", "direction"):
-                        if ak in a and a[ak] != rd[ak]: attr.append((code, k, ak, a[ak], rd[ak]))
-            if platform == "event" and cap.get("event_types") != g.get("event_types"): attr.append((code, k, "event_types", cap.get("event_types"), g.get("event_types")))
+                        if ak in a and a[ak] != rd[ak]:
+                            attr.append((code, k, ak, a[ak], rd[ak]))
+            if platform == "event" and cap.get("event_types") != g.get("event_types"):
+                attr.append((code, k, "event_types", cap.get("event_types"), g.get("event_types")))
             if platform == "select":
                 rd = got[k].read(schema_of(code).status)
-                if cap.get("options") != rd["options"]: attr.append((code, k, "cap.options", cap.get("options"), rd["options"]))
+                if cap.get("options") != rd["options"]:
+                    attr.append((code, k, "cap.options", cap.get("options"), rd["options"]))
             if platform not in NO_ENABLED_GOLD and (w["disabled_by"] is not None) != (not g["entity_registry_enabled_default"]):
                 attr.append((code, k, "enabled_default", w["disabled_by"], g["entity_registry_enabled_default"]))
     total = sum(len(v.get(platform, [])) for v in GOLD.values())
     print(f"{platform}: golden {total}  missing {len(miss)}  extra {len(extra)}  attr-mismatch {len(attr)}")
     for x in (miss[:5], extra[:5], attr[:8]):
-        for i in x: print("   ", i)
+        for i in x:
+            print("   ", i)
     return not (miss or extra or attr)
 
 ACTION = {"$SERVICE_TURN_ON": "turn_on", "$SERVICE_TURN_OFF": "turn_off", "$SERVICE_PRESS": "press",
@@ -152,7 +192,8 @@ def run_actions():
     for c in json.loads((pathlib.Path(__file__).parent / "golden" / "actions_golden.json").read_text()):
         plat = c["entity_id"].split(".")[0]
         act = ACTION.get(c.get("service"))
-        if plat not in BUILDERS or act is None or "mock_device_code" not in c: continue
+        if plat not in BUILDERS or act is None or "mock_device_code" not in c:
+            continue
         code = c["mock_device_code"]
         gold = next((r for r in GOLD[code].get(plat, []) if r["entity_id"] == c["entity_id"]), None)
         plan = next((e for e in classify(schema_of(code), ENV, platforms=(plat,)).entities if gold and e.key == gold["key"]), None)
@@ -160,12 +201,14 @@ def run_actions():
         args = {ARG.get(k, k): v for k, v in (c.get("service_data") or {}).items()}
         args = {k: (v.split(".", 1)[1].lower() if isinstance(v, str) and v.startswith("$HVACMode.") else v) for k, v in args.items()}
         for sk in ("fan_mode", "preset_mode", "swing_mode", "option"):    # HA service schemas coerce these to str (host)
-            if sk in args: args[sk] = str(args[sk])
+            if sk in args:
+                args[sk] = str(args[sk])
         if args.get("white") is True and plan:                # HA light service: white=True -> current brightness
             args["white"] = plan.read(schema_of(code).status)["brightness"]
         got = plan.write(act, args, schema_of(code).status) if plan else None
         if got != c["expected_commands"]:
-            bad += 1; print("   ACTION MISMATCH", c["test"], c["entity_id"], got, c["expected_commands"])
+            bad += 1
+            print("   ACTION MISMATCH", c["test"], c["entity_id"], got, c["expected_commands"])
     print(f"actions replayed {n}  mismatched {bad}")
     return bad == 0
 

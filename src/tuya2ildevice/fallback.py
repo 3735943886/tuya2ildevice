@@ -62,7 +62,8 @@ def _plan(code: str, kind: str, spec: Any, rw: bool, r: ResolvedDp, ident: dict)
         return EntityPlan(platform, code, ident, {"main": r}, (code,), read, write, slot_kind=slot_kind)
 
     if kind == BOOLEAN:
-        read = lambda st: {"is_on": ops.validate_bool_read(st.get(code))}
+        def read(st):
+            return {"is_on": ops.validate_bool_read(st.get(code))}
         if rw:
             return mk("switch", read, lambda a, args, st: [{"code": code, "value": a == "turn_on"}])
         return mk("binary_sensor", read)

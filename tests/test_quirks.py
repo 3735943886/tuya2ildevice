@@ -1,16 +1,20 @@
 """apply_quirk == tuya-device-handlers' post-quirk schema (oracle dumps: quirk_golden.json real fixtures,
 quirk_synthetic_golden.json empty-schema patches)."""
-import json, pathlib, sys
-here = pathlib.Path(__file__).parent / "golden"
+import json
+import pathlib
 import fixtures
 from tuya2ildevice.tuya.model import DeviceSchema, DpSpec
 from tuya2ildevice.tuya.quirks import apply_quirk, apply_status_quirk, device_info, load_quirks, quirk_for
 
+here = pathlib.Path(__file__).parent / "golden"
+
 
 def norm_values(v):
     if isinstance(v, str):
-        try: return json.loads(v) if v else None
-        except ValueError: return v
+        try:
+            return json.loads(v) if v else None
+        except ValueError:
+            return v
     return v
 
 
@@ -31,7 +35,8 @@ def test_real_fixtures():
     assert gold, "no quirk fixtures"
     for code, g in gold.items():
         d = fixtures.load(code)
-        mk = lambda m: {k: DpSpec(k, v["type"], v["values"], v.get("report_type")) for k, v in m.items()}
+        def mk(m):
+            return {k: DpSpec(k, v["type"], v["values"], v.get("report_type")) for k, v in m.items()}
         s = DeviceSchema(d["id"], d["category"], d["product_id"], d["name"], d["product_name"], d["online"],
                          mk(d["function"]), mk(d["status_range"]), d["status"])
         got = dump(apply_quirk(s))
@@ -51,7 +56,7 @@ def test_synthetic_empty_schema_patches():
 
 
 def test_when_guard_and_status_quirk_and_device_info():
-    q = quirk_for("hw50w7qvxluhslkk")
+    assert quirk_for("hw50w7qvxluhslkk") is not None
     for raw, applies in ((600, True), (300, False), ("600", False), (None, False)):
         s = apply_quirk(DeviceSchema("x", "kt", "hw50w7qvxluhslkk", status={"temp_set": raw} if raw is not None else {}))
         assert ("temp_set" in s.status_range) == applies, raw
@@ -84,4 +89,6 @@ def test_invert_int_max_reaches_cover():
 
 if __name__ == "__main__":
     for n, f in list(globals().items()):
-        if n.startswith("test_"): f(); print("ok", n)
+        if n.startswith("test_"):
+            f()
+            print("ok", n)

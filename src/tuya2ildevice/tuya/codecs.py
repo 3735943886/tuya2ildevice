@@ -33,10 +33,14 @@ def electricity_from_bytes(raw: bytes) -> ElectricityData | None:
         pf = d[14] / 100.0
         if is_v2:
             sign = raw[17]
-            if sign & 0x01: current = -current
-            if sign & 0x02: power = -power
-            if sign & 0x04: reactive = -reactive
-            if sign & 0x08: pf = -pf
+            if sign & 0x01:
+                current = -current
+            if sign & 0x02:
+                power = -power
+            if sign & 0x04:
+                reactive = -reactive
+            if sign & 0x08:
+                pf = -pf
         return ElectricityData(current, power, voltage, reactive, apparent, pf)
     if len(raw) >= 8:
         return ElectricityData(

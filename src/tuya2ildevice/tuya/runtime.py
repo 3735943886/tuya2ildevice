@@ -6,7 +6,7 @@ import pathlib
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from .model import BOOLEAN, DeviceSchema, DpRef, ResolvedDp, resolve
+from .model import DeviceSchema, ResolvedDp
 
 TABLES = pathlib.Path(__file__).parent / "tables"
 UNKNOWN = None  # R0.8: UNKNOWN == None

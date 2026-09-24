@@ -4,7 +4,6 @@ from __future__ import annotations
 import copy
 import json
 import pathlib
-from dataclasses import replace
 from typing import Any
 
 from .model import DeviceSchema, DpSpec

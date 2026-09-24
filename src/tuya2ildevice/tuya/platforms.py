@@ -20,8 +20,10 @@ def switch(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> EntityPl
     if r is None:
         return None
     code = r.code
-    read = lambda st: {"is_on": ops.validate_bool_read(st.get(code))}
-    write = lambda action, args, st: [{"code": code, "value": ops.validate_bool_write({"turn_on": True, "turn_off": False}[action])}]
+    def read(st):
+        return {"is_on": ops.validate_bool_read(st.get(code))}
+    def write(action, args, st):
+        return [{"code": code, "value": ops.validate_bool_write({"turn_on": True, "turn_off": False}[action])}]
     return EntityPlan("switch", desc["key"], identity(desc), {"main": r}, (code,), read, write)
 
 
@@ -31,7 +33,8 @@ def button(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> EntityPl
     if r is None:
         return None
     code = r.code
-    write = lambda action, args, st: [{"code": code, "value": ops.validate_bool_write(True)}]   # press
+    def write(action, args, st):
+        return [{"code": code, "value": ops.validate_bool_write(True)}]   # press
     return EntityPlan("button", desc["key"], identity(desc), {"main": r}, (code,), None, write)
 
 
@@ -41,8 +44,10 @@ def select(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> EntityPl
     if r is None:
         return None
     code, spec = r.code, r.spec
-    read = lambda st: {"current_option": ops.validate_enum_read(spec, st.get(code)), "options": list(spec.range)}
-    write = lambda action, args, st: [{"code": code, "value": ops.validate_enum_write(spec, args["option"])}]
+    def read(st):
+        return {"current_option": ops.validate_enum_read(spec, st.get(code)), "options": list(spec.range)}
+    def write(action, args, st):
+        return [{"code": code, "value": ops.validate_enum_write(spec, args["option"])}]
     return EntityPlan("select", desc["key"], identity(desc), {"main": r}, (code,), read, write)
 
 
@@ -58,8 +63,10 @@ def number(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> EntityPl
     ident.update(device_class=ur.device_class, native_unit=ur.native_unit, suggested_unit=ur.suggested_unit)
     ident.update(native_min_value=ops.scale_value(spec, spec.min), native_max_value=ops.scale_value(spec, spec.max),
                  native_step=ops.scale_value(spec, spec.step))
-    read = lambda st: {"native_value": ops.validate_int_read(spec, st.get(code))}
-    write = lambda action, args, st: [{"code": code, "value": ops.validate_int_write(spec, args["value"])}]
+    def read(st):
+        return {"native_value": ops.validate_int_read(spec, st.get(code))}
+    def write(action, args, st):
+        return [{"code": code, "value": ops.validate_int_write(spec, args["value"])}]
     return EntityPlan("number", desc["key"], ident, {"main": r}, (code,), read, write)
 
 
@@ -109,9 +116,11 @@ def sensor(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> EntityPl
                           desc.get("suggested_unit_of_measurement"), schema.status.get("temp_unit_convert"), env.allowed_units)
         ident.update(device_class=ur.device_class, native_unit=ur.native_unit, suggested_unit=ur.suggested_unit)
         if delta:
-            read = lambda st, slot=None: {"native_value": slot.total if slot else 0.0}
+            def read(st, slot=None):
+                return {"native_value": slot.total if slot else 0.0}
             return EntityPlan("sensor", desc["key"], ident, {"main": ri}, (code,), read, slot_kind="delta")
-        read = lambda st, slot=None: {"native_value": ops.validate_int_read(spec, st.get(code))}
+        def read(st, slot=None):
+            return {"native_value": ops.validate_int_read(spec, st.get(code))}
         return EntityPlan("sensor", desc["key"], ident, {"main": ri}, (code,), read)
     re_ = resolve(schema, DpRef((dpcode,), (ENUM,)))
     if re_ is not None:
@@ -124,7 +133,8 @@ def sensor(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> EntityPl
         ur = resolve_unit("sensor", dc, None, desc.get("native_unit_of_measurement"),
                           desc.get("suggested_unit_of_measurement"), schema.status.get("temp_unit_convert"), env.allowed_units)
         ident.update(device_class=ur.device_class, native_unit=ur.native_unit, suggested_unit=ur.suggested_unit)
-        read = lambda st: {"native_value": ops.validate_enum_read(spec, st.get(code))}
+        def read(st):
+            return {"native_value": ops.validate_enum_read(spec, st.get(code))}
         return EntityPlan("sensor", desc["key"], ident, {"main": re_}, (code,), read)
     return None
 
@@ -148,7 +158,8 @@ def _wrapped_sensor(schema, env, desc, dpcode, ident):
             code = r.code
             _finish_sensor(schema, env, desc, ident, desc.get("device_class"), None, None)
             ident["kind"] = "wind_direction"
-            read = lambda st: {"native_value": None if st.get(code) is None else codecs.WIND_DIRECTIONS.get(st.get(code))}
+            def read(st):
+                return {"native_value": None if st.get(code) is None else codecs.WIND_DIRECTIONS.get(st.get(code))}
             return EntityPlan("sensor", desc["key"], ident, {"main": r}, (code,), read)
         m = re.fullmatch(r"Electricity(\w+?)(Raw|Json|HexString)Wrapper", w)
         if not m:
@@ -260,7 +271,8 @@ def event(schema, env, desc):
             return None
         ident["event_types"] = list(r.spec.range)
         code = r.code
-        read = lambda st: {"event": None if st.get(code) is None else (st.get(code), None)}
+        def read(st):
+            return {"event": None if st.get(code) is None else (st.get(code), None)}
     else:
         kind = STRING if w == "Base64Utf8StringEventWrapper" else RAW
         r = resolve(schema, DpRef((dpcode,), (kind,)))
@@ -407,7 +419,8 @@ def fan(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> EntityPlan 
     ident = identity(desc)
     feats = 0
     if mode:
-        feats |= FAN_FEATURES["PRESET_MODE"]; ident["preset_modes"] = list(mode.spec.range)
+        feats |= FAN_FEATURES["PRESET_MODE"]
+        ident["preset_modes"] = list(mode.spec.range)
     if speed:
         feats |= FAN_FEATURES["SET_SPEED"]
         ident["speed_count"] = len(speed.spec.range) if speed.kind == ENUM else 100
@@ -859,7 +872,6 @@ def climate(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> EntityP
 
 
 # --- light -------------------------------------------------------------------------
-import json  # noqa: E402
 
 _COLOR_MODES_COLOR = {"hs", "rgb", "rgbw", "rgbww", "xy"}
 MIN_KELVIN, MAX_KELVIN = 2000, 6500

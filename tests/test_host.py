@@ -10,7 +10,7 @@ import subprocess
 import time
 
 import pytest
-from helpers import curtain, light
+from helpers import light
 
 from tuya2ildevice import BridgeCommand, Connected, Hub, IlTopics, Message
 from tuya2ildevice.host import DeviceWatcher, InProcessTransport, OverrideWatcher, Runner, load_overrides, parse_devices
