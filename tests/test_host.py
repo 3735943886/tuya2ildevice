@@ -20,6 +20,7 @@ from tuya2ildevice.host import (
     Runner,
     load_overrides,
     parse_devices,
+    producer_running,
 )
 from tuya2ildevice.host.memory import matches
 
@@ -283,6 +284,22 @@ async def test_a_producer_stopping_after_its_replacement_started_does_not_leave_
     assert il.retained["il/_producer/tuya"].payload == "offline"          # its own `offline` is not answered
 
 
+async def test_producer_running_tells_a_live_producer_from_a_stale_presence():
+    il = InProcessTransport()
+    assert await producer_running(il, "il/_producer/tuya") is False                  # nobody ever ran
+    runner = Runner(Hub([lamp("lamp1")], il=IlTopics("il", "tuya")), il)
+    await runner.start()
+    await runner.drain()
+    assert await producer_running(il, "il/_producer/tuya") is True                   # it answers the probe
+    assert await producer_running(il, "il/_producer/other") is False                 # another source is not it
+    assert "il/_producer/tuya/alive" not in il.retained and "il/_producer/tuya/probe" not in il.retained
+    await runner.stop()
+    await il.settle()
+    assert await producer_running(il, "il/_producer/tuya") is False                  # its `offline`
+    await il.publish("il/_producer/tuya", "online", 1, True)                         # a Last Will that never came
+    assert await producer_running(il, "il/_producer/tuya", timeout=0.2) is None
+
+
 async def test_the_handover_on_a_real_broker(broker):
     """What a host sees: each producer on its own connection with its Last Will, the old one stopping after the new."""
     # paho is optional: the broker fixture skips without it
@@ -299,6 +316,10 @@ async def test_the_handover_on_a_real_broker(broker):
         return runner, t
 
     old, old_t = await producer("handover-old")
+    probe = MqttTransport("127.0.0.1", broker, client_id="handover-probe")
+    await probe.connect()
+    assert await producer_running(probe, "il/_producer/tuya") is True
+    await probe.close()
     new, new_t = await producer("handover-new")
     await old.stop()
     await old_t.close()

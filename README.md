@@ -116,6 +116,16 @@ control, set-position and position dps; a snapshot never starts motion. Timers c
   shows how to port one.
 - A bad file is reported and left out; the rest still loads. Overrides the Hub refuses leave the ones in effect.
 
+### The override pack
+
+Fixes for non-standard devices can reach users before the next release: [pack/](pack/) on `master` holds override files
+and `tuya2ildevice.host.pack.sync(directory)` copies them into a host's `custom_converters/` directory, where the watcher
+loads them like the user's own (rustuya-local does this at start and daily, unless turned off). Every file is checked
+against the manifest's SHA-256, and `sync` only writes or removes the files it put there, as recorded in
+`.tuya2ildevice_pack.json`. A user's file with the same name, or a pack file the user has edited, is left alone. A
+manifest entry can be limited to a range of tuya2ildevice versions (`pack.LEVEL`). `.py` pack files run in the host's
+process, like the user's own files.
+
 ## tuya2ildevice <-> an IL host over MQTT
 
 `Hub` ([mqtt.py](src/tuya2ildevice/mqtt.py)) owns one driver per device and maps il-mqtt.md on the IL side. On the
@@ -135,6 +145,12 @@ running (`set_device`, `remove_device`, `sync_devices`), follows rustuya-manager
 (`DeviceWatcher`), and routes every `BridgeCommand` Hub produces through an injected `on_bridge_command` callback —
 supplied by whatever owns the real bridge connection — plus a matching `runner.on_bridge_message(device_id, inp,
 retained=False)` entry point for feeding decoded bridge input back in.
+
+One producer per IL prefix and source: `await producer_running(il, hub.il.presence)` before starting says whether
+another one is serving it. It returns `True` when a running `Runner` answers a probe on `<presence>/probe` (the answer
+comes on `<presence>/alive`; neither is retained, and IL consumers, subscribed to `_producer/+`, do not see them). It
+returns `False` when presence is not `online`. It returns `None` when presence is `online` but nothing answers: a
+stale presence whose Last Will never reached the broker, or a producer on tuya2ildevice before 0.3.5.
 
 | direction | shape |
 |---|---|

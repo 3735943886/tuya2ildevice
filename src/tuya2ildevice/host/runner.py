@@ -7,15 +7,53 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import secrets
 import time
 from collections.abc import Callable
 
 from ..io import Connected, Disconnected
 from ..io import Message as DriverInput
-from ..mqtt import BridgeCommand, Hub, Publish, Schedule, Unschedule
+from ..mqtt import IL, BridgeCommand, Hub, Publish, Schedule, Unschedule
 from .transport import Message, Transport, Unsubscribe
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _text(payload: bytes | str) -> str:
+    return payload.decode() if isinstance(payload, (bytes, bytearray)) else payload
+
+
+async def producer_running(il: Transport, presence: str, timeout: float = 2.0) -> bool | None:
+    """Is a producer serving `presence` (`<prefix>/_producer/<source>`) right now? Call it before starting one.
+
+    False: the presence topic is not `online`. True: it is, and a running `Runner` answered a probe on
+    `<presence>/probe` (on `<presence>/alive`, neither retained; below `_producer/+`, so IL consumers do not see them).
+    None: it is `online` but nothing answered: a producer whose Last Will never reached the broker (a power cut that
+    took the broker along), or one on tuya2ildevice before 0.3.5, which does not answer."""
+    seen: list[str] = []
+    unsub = await il.subscribe(presence, lambda m: seen.append(_text(m.payload)) if m.retain else None)
+    try:
+        for _ in range(10):                        # the retained replay, if any
+            if seen:
+                break
+            await asyncio.sleep(0.05)
+    finally:
+        unsub()
+    if not seen or seen[-1] != "online":
+        return False
+    nonce = secrets.token_hex(8)
+    answered = asyncio.Event()
+    unsub = await il.subscribe(f"{presence}/alive",
+                               lambda m: answered.set() if not m.retain and _text(m.payload) == nonce else None)
+    try:
+        await il.publish(f"{presence}/probe", nonce, 1, False)
+        try:
+            await asyncio.wait_for(answered.wait(), timeout)
+        except asyncio.TimeoutError:
+            return None
+        return True
+    finally:
+        unsub()
 
 
 class Runner:
@@ -39,6 +77,7 @@ class Runner:
         # another producer on the same presence topic (one being replaced, stopping after this one started) publishes
         # `offline` as it goes, and it is retained over this one's `online`: say `online` again while running
         self._presence_unsub = await self.il.subscribe(self.hub.il.presence, self._on_presence)
+        self._unsubs.append(await self.il.subscribe(f"{self.hub.il.presence}/probe", self._on_probe))
         hooks = getattr(self.il, "on_connect", None)
         if hooks is not None:
             hooks.append(self._reconnected)
@@ -124,11 +163,14 @@ class Runner:
         self._guard(lambda: self.hub.on_timer(self.clock(), device_id, name))
 
     def _on_presence(self, msg: Message) -> None:
-        payload = msg.payload.decode() if isinstance(msg.payload, (bytes, bytearray)) else msg.payload
-        if msg.retain or payload != "offline" or self._presence_unsub is None:
+        if msg.retain or _text(msg.payload) != "offline" or self._presence_unsub is None:
             return                                 # a replay on subscribe is older than this one's own `online`
         _LOGGER.info("%s went offline while this producer runs (another one stopped): online again", msg.topic)
         self.run([self.hub.presence(True)])
+
+    def _on_probe(self, msg: Message) -> None:
+        if not msg.retain and self._presence_unsub is not None:   # `producer_running` of one about to start
+            self.run([Publish(IL, f"{self.hub.il.presence}/alive", _text(msg.payload), False, 1)])
 
     def _on_il(self, msg: Message) -> None:
         self._guard(lambda: self.hub.on_il(self.clock(), msg.topic, msg.payload, msg.retain))

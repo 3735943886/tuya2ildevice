@@ -6,11 +6,22 @@ following rustuya-manager's `tuyadevices.json` and a directory of user overrides
 from .devices import DeviceWatcher, load_devices, parse_devices
 from .memory import InProcessTransport
 from .overrides import OverrideSet, OverrideWatcher, load_overrides
-from .runner import Runner
+from .runner import Runner, producer_running
 from .transport import Message, Transport
 
-__all__ = ["DeviceWatcher", "InProcessTransport", "Message", "OverrideSet", "OverrideWatcher", "Runner", "Transport",
-           "load_devices", "load_overrides", "parse_devices"]
+__all__ = [
+    "DeviceWatcher",
+    "InProcessTransport",
+    "Message",
+    "OverrideSet",
+    "OverrideWatcher",
+    "Runner",
+    "Transport",
+    "load_devices",
+    "load_overrides",
+    "parse_devices",
+    "producer_running",
+]
 
 
 def __getattr__(name: str):                  # MqttTransport imports paho, which is an optional extra
