@@ -145,8 +145,8 @@ class Runner:
         for device_id, record in failed.items():
             try:
                 self.set_device(record)
-            except Exception as e:
-                _LOGGER.warning("still cannot drive device %s: %s", device_id, e)
+            except Exception:
+                _LOGGER.exception("still cannot drive device %s", device_id)
                 self._failed[device_id] = record
             else:
                 _LOGGER.info("device %s is driven now", device_id)
