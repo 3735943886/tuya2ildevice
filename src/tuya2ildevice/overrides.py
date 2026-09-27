@@ -26,7 +26,8 @@ range.
 A null value clears a field. Unknown keys raise `OverrideError` rather than being ignored.
 
 `BUILTIN` (``overrides.json`` next to this module) is the curated set shipped with the package, for devices whose
-cloud schema is known to be wrong; `find` puts it under the user's mapping (a user block wins, key by key).
+cloud schema is known to be wrong (empty for now: a fix for one installation's devices belongs in that installation's
+own overrides, not here); `find` puts it under the user's mapping (a user block wins, key by key).
 """
 from __future__ import annotations
 

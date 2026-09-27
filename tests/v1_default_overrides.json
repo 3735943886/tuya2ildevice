@@ -1,0 +1,20 @@
+{
+  "5rta89nj": {
+    "expose_unused": true,
+    "dp": {"104": {"code": "percent_control", "type": "Integer",
+                   "values": {"unit": "%", "min": 0, "max": 100, "scale": 0, "step": 1}}},
+    "props": {"percent_control": {"label": "Opening", "category": null},
+              "residual_electricity": {"label": "Battery", "class": "battery"}},
+    "device": {"model": "Sliding Window Opener"}
+  },
+  "f6jujmx0is5td50x": {
+    "remove": ["percent_state"],
+    "converters": {"cover_motion": {}}
+  },
+  "h2wipnagcunsar5r": {
+    "converters": {"cover_motion": {}}
+  },
+  "3i3exuay": {
+    "converters": {"cover_motion": {}}
+  }
+}

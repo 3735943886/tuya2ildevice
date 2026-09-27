@@ -77,8 +77,8 @@ Details and the block format are in [overrides.py](src/tuya2ildevice/overrides.p
 Unknown keys raise `OverrideError`. `Hub.reload(mapping)` applies new overrides live: republishes changed descriptors
 and clears removed properties.
 
-The package ships a curated set, [overrides.json](src/tuya2ildevice/overrides.json) (`overrides.BUILTIN`), for
-products known to need it; a user's block for the same product wins key by key, and `use_quirks=False` turns it off
+The package can ship a curated set, [overrides.json](src/tuya2ildevice/overrides.json) (`overrides.BUILTIN`, empty
+for now), for products known to need it; a user's block for the same product wins key by key, and `use_quirks=False` turns it off
 with the quirks. `from_v1(custom_converters)` converts rustuya-homeassistant v1 files: `dp_meta`, `model` and
 `discovery_overrides.cover` (dp roles, command words, inversion, derived state) map to the keys above; other
 `discovery_overrides` (Home Assistant payload fields) are dropped with a warning.

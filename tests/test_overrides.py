@@ -19,7 +19,9 @@ from tuya2ildevice import (
 from tuya2ildevice.overrides import BUILTIN, OverrideError, from_v1, is_v1
 
 HERE = pathlib.Path(__file__).parent
-PRODUCTS = json.loads((HERE / "v1_default_products.json").read_text())      # cloud schemas of the curated products
+PRODUCTS = json.loads((HERE / "v1_default_products.json").read_text())      # cloud schemas of the v1 pack's products
+# the v1 pack's products in this format: one user's own devices, so a user mapping here and never in BUILTIN
+MINE = json.loads((HERE / "v1_default_overrides.json").read_text())
 
 # rustuya-homeassistant's custom_converters/00_default.json, as it shipped
 V1_DEFAULT = {
@@ -154,7 +156,13 @@ def test_named_converter_types_from_the_host():
 
 
 # --- built-in set and v1 migration -----------------------------------------------------------------
-def test_builtin_overrides_apply_by_default_and_follow_use_quirks():
+def test_the_builtin_set_ships_empty():
+    assert BUILTIN == {}          # the v1 pack's products are one user's devices, not a curated fix for everyone
+    assert "motion" not in TuyaDriver(PRODUCTS["3i3exuay"]).descriptor["props"]
+
+
+def test_a_builtin_set_applies_by_default_and_follows_use_quirks(monkeypatch):
+    monkeypatch.setattr("tuya2ildevice.overrides.BUILTIN", MINE)
     opener = PRODUCTS["5rta89nj"]
     assert set(TuyaDriver(opener, use_quirks=False).descriptor["props"]) == {"available"}
     props = TuyaDriver(opener).descriptor["props"]
@@ -166,35 +174,36 @@ def test_builtin_overrides_apply_by_default_and_follow_use_quirks():
         assert "motion" not in TuyaDriver(PRODUCTS[pid], use_quirks=False).descriptor["props"]
 
 
-def test_a_user_block_wins_over_the_builtin_one():
+def test_a_user_block_wins_over_the_builtin_one(monkeypatch):
+    monkeypatch.setattr("tuya2ildevice.overrides.BUILTIN", MINE)
     d = TuyaDriver(PRODUCTS["5rta89nj"], overrides={"5rta89nj": {"props": {"percent_control": {"label": "Window"}}}})
     assert d.descriptor["props"]["percent_control"]["label"] == "Window"
 
 
-def test_position_reads_back_from_the_target_where_the_builtin_says_so():
-    d = TuyaDriver(PRODUCTS["f6jujmx0is5td50x"])
+def test_position_reads_back_from_the_target_where_the_override_says_so():
+    d = TuyaDriver(PRODUCTS["f6jujmx0is5td50x"], overrides=MINE)
     d.handle(0, Connected())
-    plain = TuyaDriver(PRODUCTS["f6jujmx0is5td50x"], use_quirks=False)
+    plain = TuyaDriver(PRODUCTS["f6jujmx0is5td50x"])
     plain.handle(0, Connected())
     assert "position" not in _values(plain.handle(1, Message("active", {"2": 30})))     # read from percent_state
     assert "position" in _values(d.handle(1, Message("active", {"2": 30})))
 
 
 @needs_spec
-def test_builtin_descriptors_validate():
+def test_overridden_descriptors_validate():
     jsonschema = pytest.importorskip("jsonschema")
     schema = json.loads(SCHEMA.read_text())
     for dev in PRODUCTS.values():
-        jsonschema.validate(TuyaDriver(dev).descriptor, schema)
+        jsonschema.validate(TuyaDriver(dev, overrides=MINE).descriptor, schema)
 
 
-def test_v1_default_converts_to_the_builtin_set():
-    assert is_v1(V1_DEFAULT) and not is_v1(BUILTIN)
+def test_v1_default_converts_to_the_same_overrides():
+    assert is_v1(V1_DEFAULT) and not is_v1(MINE)
     new, warn = from_v1(V1_DEFAULT)
     assert warn == []
     for pid in ("f6jujmx0is5td50x", "h2wipnagcunsar5r", "3i3exuay"):
-        assert new[pid] == BUILTIN[pid], pid
-    opener = {k: v for k, v in BUILTIN["5rta89nj"].items() if k != "props"}      # labels are the built-in's own
+        assert new[pid] == MINE[pid], pid
+    opener = {k: v for k, v in MINE["5rta89nj"].items() if k != "props"}      # labels are the fixture's own
     new_opener = dict(new["5rta89nj"])
     new_opener["dp"] = {k: {kk: vv for kk, vv in d.items() if kk != "mode"} for k, d in new_opener["dp"].items()}
     assert new_opener == opener
