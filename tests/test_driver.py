@@ -99,6 +99,7 @@ def test_event_fires_on_active_only():
     assert d.handle(1, Message("state", {"1": "click"})) == [Value("available", True)]      # a replay is no occurrence
     assert d.handle(2, Message("active", {"1": "click"})) == [Event("switch_mode1", "click")]
     assert d.handle(3, Message("active", {"1": "click"})) == [Event("switch_mode1", "click")]   # same kind twice: two events
+    assert d.handle(4, Message("passive", {"1": "double_click"})) == []      # a passive report is no press, even changed
 
 
 # --- il.md section 5 vectors ------------------------------------------------------------------

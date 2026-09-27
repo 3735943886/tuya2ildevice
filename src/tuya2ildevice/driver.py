@@ -237,7 +237,8 @@ class TuyaDriver:
         for name, b in self.assembly.bindings.items():
             deps = b.plan.depends_on
             if b.event:
-                if active and deps[0] in changed:
+                if pushed and deps[0] in changed:           # an event fires only from `active` (a passive replay of a
+                                                            # click is the device's cached value, not a new press)
                     ev = on_update(b.plan, b.slot, changed, {c: ts for c in changed}, self._codes)
                     if ev.fire and ev.fire[0] in self.descriptor["props"][name]["options"]:
                         outs.append(Event(name, ev.fire[0]))
