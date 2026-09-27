@@ -136,7 +136,7 @@ topics exist, let alone that they're configurable. Rendering `BridgeCommand` int
 a real bridge MQTT message into `Connected`/`Disconnected`/`Message`, is the **host's** job — correctly, that means
 using [pyrustuyabridge](https://github.com/3735943886/rustuya-bridge)'s bindings (`match_topic`, `render_template`,
 `tpl_to_wildcard`, `parse_seed_dps`), which mirror the real bridge's own template/payload parsing, not a hand-rolled
-one. [rustuya-local](https://github.com/3735943886/rustuya-homeassistant) is that host for a real rustuya-bridge; its
+one. [rustuya-local](https://github.com/3735943886/rustuya-local) is that host for a real rustuya-bridge; its
 `bridge_client` module is the reference implementation.
 
 `tuya2ildevice.host` is the *IL-side* host: `Runner` drives a `Hub` on one IL transport (`MqttTransport` over paho, or
