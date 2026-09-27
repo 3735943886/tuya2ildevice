@@ -35,7 +35,7 @@ from .io import (
     Value,
 )
 from .tuya import platforms  # noqa: F401  (registers the platform builders)
-from .tuya.adapter import Adapter
+from .tuya.adapter import Adapter, NoWritePath
 from .tuya.model import DeviceSchema, DpSpec, SchemaError
 from .tuya.quirks import apply_quirk, apply_status_quirk, device_info, quirk_for
 from .tuya.runtime import (
@@ -273,7 +273,7 @@ class TuyaDriver:
         try:
             commands = b.write(value, self._codes)
             dps, missing = self.adapter.write(commands)
-        except ActionDPCodeNotFound as e:
+        except (ActionDPCodeNotFound, NoWritePath) as e:
             return [Reject(cmd.prop, "unsupported", str(e))]
         except (WriteRejected, SchemaError, KeyError, TypeError) as e:
             return [Reject(cmd.prop, "invalid_value", str(e))]

@@ -1,5 +1,10 @@
 # SDK value_convert investigation
 
+**Status (2026-09-27):** 22 of the 24 strategies are ported in `tuya/adapter.py` and checked against the SDK itself
+(`tests/test_adapter.py`, the SDK is a test dependency). Writes: exact inverses for enum, dj_v2_*, dj_v1_hsv,
+voice_atm_color, cz_timer1/2 and hb_jsq_lightv1; the rest refuse writes (`NoWritePath`). Not ported: db_v1_data and
+db_v1_tariff (section 4 d), still passed through and listed in `Adapter.unsupported`.
+
 SDK root: `/home/ubuntu/.cache/uv/archive-v0/EaUfhfmZ1Wvf3b_U/tuya_sharing/` (call it SDK/). All 24 strategies were run in a python harness (paho/requests/Crypto stubbed) to confirm outputs.
 
 ## 1. What the SDK does

@@ -1,10 +1,12 @@
 """Adapter.read == tuya_sharing Manager._on_device_report (SDK as oracle; needs tuya_sharing) + write round-trips.
 Run with the oracle venv (tuya-device-sharing-sdk==0.2.15)."""
+import base64
 import json
 import pathlib
 import random
 
 import fixtures
+import pytest
 
 from tuya2ildevice.tuya.adapter import STRATEGIES, Adapter
 from tuya2ildevice.tuya.model import DpSpec
@@ -88,13 +90,100 @@ def test_write_roundtrips():
 def test_statusformat_key_and_unsupported_and_enum_guard():
     ls = {"2": {"value_convert": "default", "status_code": "humidity_value",
                 "config_item": {"statusFormat": '{"va_humidity":"$"}', "valueType": "Integer", "valueDesc": '{"min":0,"max":100}'}},
-          "9": {"value_convert": "cz_timer1_alg", "status_code": "t", "config_item": {"statusFormat": '{"timer":"$"}'}},
+          "9": {"value_convert": "db_v1_data", "status_code": "t", "config_item": {"statusFormat": '{"timer":"$"}'}},
           "3": {"value_convert": "default", "status_code": "mode",
                 "config_item": {"statusFormat": {"mode": "$"}, "valueType": "Enum", "valueDesc": '{"range":["a","b"]}'}}}
     ad = Adapter.from_local_strategy(ls, {"mode": DpSpec("mode", "Enum", '{"range":["a","b"]}')})
     assert ad.read({"2": 55, "9": "xx", "3": "b", "77": 1}) == {"va_humidity": 55, "timer": "xx", "mode": "b"}
     assert ad.read({"3": "zzz"}) == {}                      # Enum guard drops
-    assert ad.unsupported == {"9": "cz_timer1_alg"}
+    assert ad.unsupported == {"9": "db_v1_data"}
+
+
+def _b64(bs):
+    return base64.b64encode(bytes(bs)).decode()
+
+
+def _hex(n):
+    return "".join(random.choice("0123456789abcdef") for _ in range(n))
+
+
+def _new_samples(name):
+    """Raw values as a device would send them for each strategy ported after the first six, plus edge cases."""
+    r = random.randrange
+    if name in ("cz_timer1_alg", "cz_timer2_alg"):
+        w = 6 if name == "cz_timer1_alg" else 10
+        return [None, ""] + [_b64(r(256) for _ in range(w * k)) for k in (1, 2, 3) for _ in range(15)]
+    if name in ("dj_v1_hsv_alg", "voice_atm_color"):
+        return [None, "ff00000168ffff", "00ff800168ffff"] + [_hex(6) + "0168ffff" for _ in range(20)] + \
+               [_hex(6) + f"{r(361):04x}" + _hex(4) for _ in range(40)]
+    if name == "dj_v1_scene_alg":
+        return [None, ""] + [_hex(6) + f"{k:02x}" + _hex(6 * k) for k in (1, 2, 5) for _ in range(10)]
+    if name == "hb_djv1_color":
+        return [None] + [json.dumps({"h": r(361), "s": r(256), "v": r(256)}) for _ in range(40)]
+    if name == "hb_jsq_lightv1":
+        return [None, "", "abc", "12"]
+    if name in ("hb_range_v1", "hb_range_v2"):
+        return [None, -5, 0, 24, 25, 26, 100, 254, 255, 300, "30"] + [r(256) for _ in range(40)]
+    if name == "ms_dp_syn_alg":
+        return [None, "", "!!"] + [_b64(v for _ in range(k) for v in (r(1, 128), r(256))) for k in (1, 2, 4) for _ in range(10)]
+    if name == "sd_clean_record":
+        digits = "0123456789"
+        return [None] + ["".join(random.choice(digits) for _ in range(n)) for n in (6, 11, 18, 23, 25) for _ in range(5)]
+    if name == "db_v1_params":
+        return [None, _b64(r(256) for _ in range(8))] + [_b64([1, 15] + [r(256) for _ in range(15)]) for _ in range(15)] + \
+               [_b64([2, 15] + [r(256) for _ in range(15)] + [r(16)]) for _ in range(15)]
+    if name in ("db_v1_daily", "db_v1_month"):
+        return [None] + [_b64(r(256) for _ in range(8)) for _ in range(20)]
+    if name == "db_v1_frozen":
+        return [None] + [_b64(r(256) for _ in range(2)) for _ in range(20)]
+    if name == "db_v1_alarm":
+        return [None, ""] + [_b64(v for _ in range(k) for v in (r(1, 16), r(3), r(256), r(256))) for k in (1, 3, 6)
+                             for _ in range(10)]
+    raise AssertionError(name)
+
+
+NEW = ("cz_timer1_alg", "cz_timer2_alg", "dj_v1_hsv_alg", "voice_atm_color", "dj_v1_scene_alg", "hb_djv1_color",
+       "hb_jsq_lightv1", "hb_range_v1", "hb_range_v2", "ms_dp_syn_alg", "sd_clean_record", "db_v1_params",
+       "db_v1_daily", "db_v1_month", "db_v1_frozen", "db_v1_alarm")
+
+
+def test_the_later_strategies_read_as_the_sdk_does():
+    ci = {"statusFormat": '{"x":"$"}', "valueType": "String", "valueDesc": "{}"}
+    n = 0
+    for name in NEW:
+        assert name in STRATEGIES, name
+        for raw in _new_samples(name):
+            try:
+                _, want = SDK.convert(name, ("x", raw), ci)
+            except Exception:  # noqa: BLE001, S112  (the SDK raises: the adapter drops the value, checked in read())
+                continue
+            got = STRATEGIES[name][0](raw, ci)
+            if isinstance(want, set):
+                want = sorted(want)                                  # ms_dp_syn_alg: the same data, JSON-safe
+            assert got == want, (name, raw, got, want)
+            n += 1
+    assert n > 500, n
+
+
+def test_the_later_strategies_that_can_be_written_round_trip():
+    ci = {}
+    for name, width in (("cz_timer1_alg", 6), ("cz_timer2_alg", 10)):
+        read, write = STRATEGIES[name]
+        for _ in range(30):
+            raw = _b64([random.randrange(2)] + [random.randrange(128)] +
+                       [b for _ in range((width - 2) // 2) for b in divmod(random.randrange(24 * 60), 256)])
+            assert write(read(raw, ci), ci) == raw, (name, raw)
+    read, write = STRATEGIES["dj_v1_hsv_alg"]
+    for _ in range(50):                        # reading rounds s and v through a 0..1 share (SDK), so compare reads
+        raw = _hex(6) + f"{random.randrange(361):04x}" + _hex(4)
+        assert read(write(read(raw, ci), ci), ci) == read(raw, ci), raw
+    read, write = STRATEGIES["hb_jsq_lightv1"]
+    assert write(read("abc", ci), ci) == "abc"
+    from tuya2ildevice.tuya.adapter import NoWritePath
+    for name in ("dj_v1_scene_alg", "hb_djv1_color", "hb_range_v1", "hb_range_v2", "ms_dp_syn_alg", "sd_clean_record",
+                 "db_v1_params", "db_v1_daily", "db_v1_month", "db_v1_frozen", "db_v1_alarm"):
+        with pytest.raises(NoWritePath):
+            STRATEGIES[name][1]("x", ci)
 
 
 if __name__ == "__main__":

@@ -112,7 +112,8 @@ control, set-position and position dps; a snapshot never starts motion. Timers c
 - `*.json`: override mappings, deep-merged in filename order (`99_local.json` refines `10_base.json`); v1 files are
   converted with `from_v1`.
 - `*.py`: define `CONVERTERS = {"name": factory}`; an override block turns one on by name. The code runs in-process.
-  A v1 plugin file (`setup(api)`) is reported, not loaded.
+  A v1 plugin file (`setup(api)`) is reported, not loaded: [docs/porting-v1-converters.md](docs/porting-v1-converters.md)
+  shows how to port one.
 - A bad file is reported and left out; the rest still loads. Overrides the Hub refuses leave the ones in effect.
 
 ## tuya2ildevice <-> an IL host over MQTT

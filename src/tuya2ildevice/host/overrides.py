@@ -66,7 +66,8 @@ def _load_py(p: Path) -> tuple[dict, str | None]:
     if types is None:
         if callable(getattr(module, "setup", None)):
             return {}, (f"{p.name}: a rustuya-homeassistant v1 plugin (setup(api)); not loaded. Port it to a "
-                        "tuya2ildevice Converter and list it in CONVERTERS")
+                        "tuya2ildevice Converter and list it in CONVERTERS: "
+                        "https://github.com/3735943886/tuya2ildevice/blob/master/docs/porting-v1-converters.md")
         return {}, f"{p.name}: defines no CONVERTERS"
     if not isinstance(types, dict) or not all(isinstance(k, str) and callable(v) for k, v in types.items()):
         return {}, f"{p.name}: CONVERTERS must map names to factories"

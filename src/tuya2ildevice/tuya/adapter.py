@@ -2,14 +2,25 @@
 
 The engine assumes core-style, already-converted values. rustuya-bridge emits RAW LAN dps keyed by numeric dp id, so this
 adapter reproduces tuya_sharing's `Manager._on_device_report` (READ) and adds the inverse (WRITE) the SDK never had.
-Sans-I/O; `read`/`write` are pure. Ported strategies: default, enum, dj_v2_{color,contr,music,scene}_alg.
-Any other strategy is passed through unchanged and listed in `Adapter.unsupported` (host may make it read-only).
+Sans-I/O; `read`/`write` are pure. Ported: default, enum, dj_v2_{color,contr,music,scene}_alg, dj_v1_{hsv,scene}_alg,
+voice_atm_color, cz_timer{1,2}_alg, hb_{djv1_color,jsq_lightv1,range_v1,range_v2}, ms_dp_syn_alg, sd_clean_record,
+db_v1_{params,daily,month,frozen,alarm}. Where the SDK has no inverse and none is exact (meter data, lossy ranges, scenes,
+lock bits) the write side raises `NoWritePath`. Not ported: db_v1_data and db_v1_tariff (the SDK's own parsers are wrong
+on real payloads, see docs/analysis/SDK_CONVERT_INVESTIGATION.md); they, and any unknown strategy, are passed through
+unchanged and listed in `Adapter.unsupported`.
 """
 from __future__ import annotations
 
+import base64
+import colorsys
 import json
+import math
 from dataclasses import dataclass, field
 from typing import Any
+
+
+class NoWritePath(Exception):
+    """The dp's strategy has no inverse: its property cannot be written."""
 
 
 def strategy_code(meta: Any) -> str | None:
@@ -89,6 +100,198 @@ def _r_scene(raw, ci):
     return json.dumps({"scene_num": 1 + _hex(raw[:2]), "scene_units": units})
 
 
+def _b64_hex(raw: str) -> str:
+    return base64.b64decode(raw).hex()
+
+
+def _hsv_from_rgb(r: int, g: int, b: int) -> dict:
+    h, s, v = colorsys.rgb_to_hsv(r / 255, g / 255, b / 255)
+    return {"h": round(h * 360, 1), "s": round(s * 255, 1), "v": round(v * 255, 1)}
+
+
+def _dj_v1_hsv(raw, digits):
+    """`RRGGBB` + `HHHH` + `SS` + `VV` (dj_v1_hsv_alg rounds s/v to 3 digits of the 0..1 share, voice_atm_color to 4);
+    the tail `0168ffff` means "take the RGB"."""
+    if raw is None:
+        return None
+    if raw[6:] == "0168ffff":
+        return json.dumps(_hsv_from_rgb(int(raw[0:2], 16), int(raw[2:4], 16), int(raw[4:6], 16)))
+    s = round(int(raw[10:12], 16) / 255, digits)
+    v = round(int(raw[12:], 16) / 255, digits)
+    return json.dumps({"h": int(raw[6:10], 16) / 1.0, "s": round(s * 255, 1), "v": round(v * 255, 1)})
+
+
+def _r_dj_v1_hsv(raw, ci):
+    return _dj_v1_hsv(raw, 3)
+
+
+def _r_voice_atm(raw, ci):
+    return _dj_v1_hsv(raw, 4)
+
+
+def _r_dj_v1_scene(raw, ci):
+    if raw is None:
+        return None
+    if not raw:
+        return ""
+    body = raw[8:]
+    hsv = [_hsv_from_rgb(int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16)) for c in
+           (body[i:i + 6] for i in range(0, len(body), 6))]
+    return json.dumps({"frequency": int(raw[4:6], 16), "bright": int(raw[0:2], 16), "temperature": int(raw[2:4], 16),
+                       "hsv": hsv})
+
+
+def _hhmm(hi: int, lo: int) -> str:
+    n = hi * 256 + lo
+    return f"{n // 60:02d}:{n % 60:02d}"
+
+
+def _timers(raw, width):
+    if raw is None:
+        return None
+    b = base64.b64decode(raw)
+    out = []
+    for i in range(0, len(b), width):
+        t = b[i:i + width]
+        item = {"timer_switch": t[0] > 0, "week_day": [d for d in range(8) if t[1] >> d & 1],
+                "start_time": _hhmm(t[2], t[3]), "end_time": _hhmm(t[4], t[5])}
+        if width == 10:
+            item.update(open_time=_hhmm(t[6], t[7]), close_time=_hhmm(t[8], t[9]))
+        out.append(item)
+    return json.dumps(out)
+
+
+def _r_timer1(raw, ci):
+    return _timers(raw, 6)
+
+
+def _r_timer2(raw, ci):
+    return _timers(raw, 10)
+
+
+def _r_hb_djv1_color(raw, ci):
+    if raw is None:
+        return None
+    o = json.loads(raw)
+    r, g, b = colorsys.hsv_to_rgb(float(o["h"]) / 360, float(o["s"]) / 255, float(o["v"]) / 255)
+    return f"{int(r * 255)}|{int(g * 255)}|{int(b * 255)}"
+
+
+def _r_hb_jsq(raw, ci):
+    return "" if raw is None else raw + "|0|0"
+
+
+def _hb_range(raw, t_min, t_max, i_min, i_max):
+    if raw is None:
+        return ""
+    x = min(i_max, max(i_min, int(raw)))
+    return min(t_max, max(t_min, math.floor((t_max - t_min) / (i_max - i_min) * (x - i_min) + t_min)))
+
+
+def _r_hb_range_v1(raw, ci):
+    return _hb_range(raw, 0, 100, 25, 255)
+
+
+def _r_hb_range_v2(raw, ci):
+    return _hb_range(raw, 1000, 12000, 0, 255)
+
+
+def _r_ms_syn(raw, ci):
+    """The unlocked indices. The SDK returns a `set`; a sorted list is the same data in a JSON-safe form."""
+    if raw is None:
+        return None
+    if not raw:
+        return []
+    try:
+        b = base64.b64decode(raw)
+        out = {((b[i] & 0x7F) - 1) * 8 + bit for i in range(0, len(b), 2) for bit in range(8) if b[i + 1] >> bit & 1}
+    except (ValueError, IndexError):
+        out = set()
+    return sorted(out)
+
+
+def _r_sd_clean(raw, ci):
+    if raw is None:
+        return None
+    n = len(raw)
+    if n == 6:
+        rec, t, a, m = "", raw[:3], raw[3:6], ""
+    elif n == 11:
+        rec, t, a, m = "", raw[:3], raw[3:6], raw[6:11]
+    elif n == 18:
+        rec, t, a, m = raw[:12], raw[12:15], raw[15:18], ""
+    else:
+        rec, t, a, m = raw[:12], raw[12:15], raw[15:18], raw[18:23]
+    return json.dumps({"record_time": rec, "clean_time": int(t), "clean_area": int(a), "map_id": m})
+
+
+def _r_db_params(raw, ci):
+    if raw is None:
+        return None
+    s = _b64_hex(raw)
+    o: dict[str, Any] = {}
+    if (len(s) >= 34 and s.startswith("010f")) or (len(s) >= 36 and s.startswith("020f")):
+        o = {"voltage": _hex(s[4:8]) / 10.0, "electricCurrent": _hex(s[8:14]) / 1000.0, "power": _hex(s[14:20]) / 1000.0,
+             "reactivePower": _hex(s[20:26]) / 1000.0, "apparentPower": _hex(s[26:32]) / 1000.0,
+             "powerFactor": _hex(s[32:34]) / 100.0}
+        if s.startswith("020f"):
+            sign = _hex(s[34:36])
+            for bit, k in ((1, "electricCurrent"), (2, "power"), (4, "reactivePower"), (8, "powerFactor")):
+                if sign & bit:
+                    o[k] = -o[k]
+    else:
+        o = {"voltage": _hex(s[0:4]) / 10.0, "electricCurrent": _hex(s[4:10]) / 1000.0, "power": _hex(s[10:16]) / 1000.0}
+    return json.dumps(o)
+
+
+def _r_db_daily(raw, ci):
+    if raw is None:
+        return None
+    s = _b64_hex(raw)
+    return json.dumps({"startMonth": _hex(s[0:2]), "startDay": _hex(s[2:4]), "endMonth": _hex(s[4:6]),
+                       "endDay": _hex(s[6:8]), "electricTotal": _hex(s[8:16]) / 100.0})
+
+
+def _r_db_month(raw, ci):
+    if raw is None:
+        return None
+    s = _b64_hex(raw)
+    return json.dumps({"startYear": _hex(s[:2]), "startMonth": _hex(s[2:4]), "endYear": _hex(s[4:6]),
+                       "endMonth": _hex(s[6:8]), "electricTotal": _hex(s[8:16]) / 100.0})
+
+
+def _r_db_frozen(raw, ci):
+    if raw is None:
+        return None
+    s = _b64_hex(raw)
+    return json.dumps({"day": _hex(s[:2]), "hour": _hex(s[2:4])})
+
+
+_ALARMS = {1: ("overcurrent", 0), 2: ("three_phase_current_imbalance", 0), 3: ("ammeter_overvoltage", 0),
+           4: ("under_voltage", 0), 5: ("three_phase_current_loss", None), 6: ("power_failure", None),
+           7: ("magnetic", None), 8: ("insufficient_balance", 0), 9: ("arrears", None), 10: ("battery_overvoltage", 2),
+           11: ("cover_open", None), 12: ("meter_cover_open", None), 13: ("fault", None)}
+
+
+def _r_db_alarm(raw, ci):
+    if raw is None:
+        return None
+    s = _b64_hex(raw)
+    out = []
+    for i in range(0, len(s), 8):
+        rec = s[i:i + 8]
+        known = _ALARMS.get(_hex(rec[0:2]))
+        if known is None:
+            continue
+        name, scale = known
+        item: dict[str, Any] = {"alarmCode": name, "doAction": _hex(rec[2:4]) == 1}
+        if scale is not None:
+            t = _hex(rec[4:8]) / math.pow(10, scale)
+            item["threshold"] = str(t) if scale > 0 else str(int(t))
+        out.append(item)
+    return json.dumps(out)
+
+
 # --- write strategies: (value, config_item) -> raw ---------------------------------------
 def _w_pass(v, ci):
     return v
@@ -128,6 +331,38 @@ def _w_scene(v, ci):
     return out
 
 
+def _w_readonly(v, ci):
+    raise NoWritePath("this dp's value conversion has no inverse")
+
+
+def _w_dj_v1_hsv(v, ci):
+    """`RRGGBB` (the colour at full value, as the device shows it) + `HHHH` `SS` `VV`: `{"h": 0..360, "s", "v": 0..255}`."""
+    o = _obj(v)
+    h, s, val = round(float(o["h"])), round(float(o["s"])), round(float(o["v"]))
+    r, g, b = colorsys.hsv_to_rgb(h / 360, s / 255, val / 255)
+    return f"{round(r * 255):02x}{round(g * 255):02x}{round(b * 255):02x}{h:04x}{s:02x}{val:02x}"
+
+
+def _hhmm_bytes(t: str) -> bytes:
+    hh, mm = (int(x) for x in t.split(":"))
+    n = hh * 60 + mm
+    return bytes((n >> 8, n & 0xFF))
+
+
+def _w_timers(v, width):
+    out = b""
+    for t in _obj(v):
+        out += bytes((1 if t["timer_switch"] else 0, sum(1 << d for d in t["week_day"])))
+        out += _hhmm_bytes(t["start_time"]) + _hhmm_bytes(t["end_time"])
+        if width == 10:
+            out += _hhmm_bytes(t["open_time"]) + _hhmm_bytes(t["close_time"])
+    return base64.b64encode(out).decode()
+
+
+def _w_hb_jsq(v, ci):
+    return v[:-4] if isinstance(v, str) and v.endswith("|0|0") else v
+
+
 STRATEGIES = {
     "default": (_r_default, _w_pass),
     "enum": (_r_enum, _w_enum),
@@ -135,6 +370,22 @@ STRATEGIES = {
     "dj_v2_contr_alg": (_r_contr, _w_contr),
     "dj_v2_music_alg": (_r_contr, _w_contr),
     "dj_v2_scene_alg": (_r_scene, _w_scene),
+    "dj_v1_hsv_alg": (_r_dj_v1_hsv, _w_dj_v1_hsv),
+    "voice_atm_color": (_r_voice_atm, _w_dj_v1_hsv),
+    "dj_v1_scene_alg": (_r_dj_v1_scene, _w_readonly),
+    "cz_timer1_alg": (_r_timer1, lambda v, ci: _w_timers(v, 6)),
+    "cz_timer2_alg": (_r_timer2, lambda v, ci: _w_timers(v, 10)),
+    "hb_djv1_color": (_r_hb_djv1_color, _w_readonly),
+    "hb_jsq_lightv1": (_r_hb_jsq, _w_hb_jsq),
+    "hb_range_v1": (_r_hb_range_v1, _w_readonly),
+    "hb_range_v2": (_r_hb_range_v2, _w_readonly),
+    "ms_dp_syn_alg": (_r_ms_syn, _w_readonly),
+    "sd_clean_record": (_r_sd_clean, _w_readonly),
+    "db_v1_params": (_r_db_params, _w_readonly),
+    "db_v1_daily": (_r_db_daily, _w_readonly),
+    "db_v1_month": (_r_db_month, _w_readonly),
+    "db_v1_frozen": (_r_db_frozen, _w_readonly),
+    "db_v1_alarm": (_r_db_alarm, _w_readonly),
 }
 
 
