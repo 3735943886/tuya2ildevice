@@ -127,7 +127,7 @@ def test_every_core_fixture_yields_a_valid_descriptor():
         assert "local_key" not in json.dumps(d.descriptor)
 
 
-def test_unused_dps_get_properties_like_v1():
+def test_unused_dps_get_properties_by_type():
     f = {"switch_1": fn("switch_1", "Boolean"), "countdown_1": fn("countdown_1", "Integer", unit="s", min=0, max=86400, scale=0, step=1),
          "mystery": fn("mystery", "Enum", range=["a", "b"]), "cycle_time": fn("cycle_time", "String")}
     sr = {**f, "fault": fn("fault", "Bitmap", label=["e1", "e2"]), "temp_x": fn("temp_x", "Integer", unit="", min=0, max=100, scale=1, step=1)}
@@ -150,7 +150,7 @@ def test_unused_dps_get_properties_like_v1():
     
 
 # --- user overrides ----------------------------------------------------------------------------
-from tuya2ildevice import OverrideError, from_v1, merge_all
+from tuya2ildevice import OverrideError, merge_all
 
 
 def _kg():
@@ -199,17 +199,9 @@ def test_override_errors_are_loud():
             TuyaDriver(_kg(), overrides=bad)
 
 
-def test_merge_and_v1_migration():
+def test_merge():
     assert merge_all([{"a": {"props": {"x": {"label": "1", "class": "c"}}}}, {"a": {"props": {"x": {"label": "2"}}}}]) == \
         {"a": {"props": {"x": {"label": "2", "class": "c"}}}}
-    new, warn = from_v1({"5rta89nj": {"model": "Opener", "dp_meta": {"104": {"code": "percent_control", "type": "Integer", "unit": "%", "min": 0, "max": 100, "step": 1, "comp": "cover"}},
-                                      "discovery_overrides": {"cover": {}}}})
-    assert new["5rta89nj"]["dp"]["104"]["values"]["unit"] == "%" and new["5rta89nj"]["device"] == {"model": "Opener"}
-    assert any("comp" in w for w in warn)
-    dev = _kg()
-    dev["product_id"] = "opener1"
-    new["opener1"] = new.pop("5rta89nj")
-    assert "percent_control" in TuyaDriver(dev, overrides=new, expose_unused=True).descriptor["props"]
 
 
 # --- code converters ---------------------------------------------------------------------------
@@ -278,9 +270,12 @@ def test_custom_python_converter_and_registration():
     assert d.handle(3, Timer("c9:x")) == [] and d.handle(3, Timer("junk")) == []
     with pytest.raises(OverrideError):
         TuyaDriver(curtain(), overrides={"cur1": {"converters": {"nope": {}}}})
-    with pytest.raises(OverrideError):                                  # a converter property may not clash or be writable
+    mine = TuyaDriver(curtain(), converters={"p": [type("Mine", (Converter,), {                  # replaces the table's
+        "__init__": lambda s, dev: None, "props": lambda s: {"position": {"type": "number", "role": "position"}}})]})
+    assert mine.descriptor["props"]["position"] == {"type": "number", "role": "position"}
+    with pytest.raises(OverrideError):                                  # writable needs a write()
         TuyaDriver(curtain(), converters={"p": [type("Bad", (Converter,), {"__init__": lambda s, dev: None,
-                                                                            "props": lambda s: {"position": {"type": "number"}}})]})
+                                                                            "props": lambda s: {"x": {"type": "number", "rw": True}}})]})
     hidden = TuyaDriver(curtain(), converters={"p": [Counter]}, overrides={"cur1": {"props": {"updates": {"hide": True}}}})
     hidden.handle(0, Connected())
     assert Value("updates", 1) not in hidden.handle(1, Message("state", {"3": 10}))

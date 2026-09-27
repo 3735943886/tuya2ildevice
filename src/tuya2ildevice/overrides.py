@@ -8,12 +8,15 @@ product's, and both win over the built-in quirks). A block:
       "remove": ["cycle_time"],                        # dp codes to drop: no classified entity, no fallback property
       "category": "cl",                                # replace the Tuya category the tables are chosen by
       "props":  {"countdown_1": {"label": "Timer", "class": "duration", "category": "config", "unit": "s",
-                                 "series": "gauge", "rw": false, "hide": false}},
+                                 "series": "gauge", "rw": false, "hide": false, "role": null},
+                 "position": {"src": "percent_control", "role": "position", "unit": "%"},    # defined: see below
+                 "open": {"src": "percent_control", "type": "trigger", "role": "open", "send": 100}},
       "device": {"kind": "cover", "class": "window", "label": "...", "vendor": "...", "model": "..."},
       "remap":  {"control": {"alias": {"on": "open", "off": "close", "pause": "stop"}},
                  "percent_state": {"invert": true}},
       "converters": {"cover_motion": {"settle": 5}},   # code converters by name (converters.py, or the host's)
-      "expose_unused": true                            # this device only: every dp no table claims gets a property
+      "expose_unused": true,                           # this device only: every dp no table claims gets a property
+      "auto": false                                    # no property from the tables: only what `props` defines
     }
 
 `dp`, `remove` and `category` patch the schema before classification, so a defined dp is classified like any other.
@@ -23,26 +26,32 @@ rename) that uses other words or the other direction than the tables expect: `al
 standard one (both ways; an Enum's range is translated too), `invert` negates a Boolean or mirrors an Integer in its
 range.
 `props` and `device` patch the finished descriptor; `props` keys are property names as `descriptor_of` shows them.
+A `props` entry with a `src` (a dp code, after any rename) defines the property instead, replacing one of that name:
+its `type` follows the dp's (Boolean binary, Integer number, Enum select, others text) unless given, `min`/`max`/`step`,
+`unit` and `options` come from the dp unless given, and it is writable (`rw`) when the dp is. A `trigger` writes its
+`send` value to the dp. `role`, `label`, `class`, `category` and `series` are as in a patch. With `device.kind` this
+builds a composite the tables do not know, e.g. a cover from a position dp alone.
 A null value clears a field. Unknown keys raise `OverrideError` rather than being ignored.
 
-`BUILTIN` (``overrides.json`` next to this module) is the curated set shipped with the package, for devices whose
-cloud schema is known to be wrong (empty for now: a fix for one installation's devices belongs in that installation's
-own overrides, not here); `find` puts it under the user's mapping (a user block wins, key by key).
+The package itself carries no block for any product or device: a fix for a model lives in a converters file (the
+user's own, or the override pack copied there).
 """
 from __future__ import annotations
 
 import copy
 import json
-from importlib import resources
 
 from .tuya.adapter import Remap
 from .tuya.model import DeviceSchema, DpSpec, normalize_type
 from .tuya.quirks import apply_quirk
 
-_BLOCK = {"dp", "remove", "category", "props", "device", "converters", "remap", "expose_unused"}
+_BLOCK = {"dp", "remove", "category", "props", "device", "converters", "remap", "expose_unused", "auto"}
 _DP = {"code", "type", "values", "mode", "report_type"}
 _REMAP = {"alias", "invert"}
-_PROP = {"label", "class", "category", "unit", "series", "rw", "hide"}
+_PROP = {"label", "class", "category", "unit", "series", "rw", "hide", "role"}
+_PROP_DEF = {"src", "type", "label", "class", "category", "unit", "series", "rw", "role", "min", "max", "step",
+             "options", "send"}
+_DEF_TYPES = {"binary", "number", "select", "text", "trigger"}
 _DEVICE = {"kind", "class", "label", "vendor", "model"}
 _RW_ROLES = {"on", "mode", "fan_speed", "target_humidity", "target_temperature", "swing_vertical",
              "swing_horizontal", "brightness", "color_temperature", "color"}    # il.md section 9: never read only
@@ -50,16 +59,6 @@ _RW_ROLES = {"on", "mode", "fan_speed", "target_humidity", "target_temperature",
 
 class OverrideError(ValueError):
     pass
-
-
-def _load_builtin() -> dict:
-    try:
-        return json.loads(resources.files(__package__).joinpath("overrides.json").read_text("utf-8"))
-    except FileNotFoundError:
-        return {}
-
-
-BUILTIN: dict = _load_builtin()
 
 
 def deep_merge(dst: dict, src: dict) -> dict:
@@ -100,11 +99,27 @@ def validate(block: dict, where: str = "override", converter_types=None) -> dict
             raise OverrideError(f"{where}.dp.{dpid}: `type` is not a Tuya type")
         if d.get("mode", "RW") not in ("R", "W", "RW"):
             raise OverrideError(f"{where}.dp.{dpid}: mode must be R, W or RW")
-    if not isinstance(block.get("expose_unused", False), bool):
-        raise OverrideError(f"{where}.expose_unused: true or false")
+    for k in ("expose_unused", "auto"):
+        if not isinstance(block.get(k, False), bool):
+            raise OverrideError(f"{where}.{k}: true or false")
     if not all(isinstance(c, str) for c in block.get("remove") or []):
         raise OverrideError(f"{where}.remove: a list of dp codes")
     for prop, p in (block.get("props") or {}).items():
+        if not isinstance(p, dict):
+            raise OverrideError(f"{where}.props.{prop}: must be an object")
+        if p.get("role") is not None and not isinstance(p["role"], str):
+            raise OverrideError(f"{where}.props.{prop}.role: a role name or null")
+        if "src" in p:
+            _unknown(f"{where}.props.{prop}", p, _PROP_DEF)
+            if not isinstance(p["src"], str) or not p["src"]:
+                raise OverrideError(f"{where}.props.{prop}.src: a dp code")
+            if p.get("type", "binary") not in _DEF_TYPES:
+                raise OverrideError(f"{where}.props.{prop}.type: one of {sorted(_DEF_TYPES)}")
+            if (p.get("type") == "trigger") != ("send" in p):
+                raise OverrideError(f"{where}.props.{prop}: a trigger needs `send`, and only a trigger takes it")
+            if not isinstance(p.get("rw", False), bool):
+                raise OverrideError(f"{where}.props.{prop}.rw: true or false")
+            continue
         _unknown(f"{where}.props.{prop}", p, _PROP)
         if p.get("category") not in (None, "diagnostic", "config"):
             raise OverrideError(f"{where}.props.{prop}: category is diagnostic, config or null")
@@ -134,15 +149,12 @@ def validate(block: dict, where: str = "override", converter_types=None) -> dict
     return block
 
 
-def find(mapping: dict | None, device: dict, converter_types=None, builtin: bool = True) -> dict:
-    """The merged, validated block for a device: the built-in block for its product (unless `builtin` is off), then
-    the user's block for its product, then the user's block for the device itself."""
+def find(mapping: dict | None, device: dict, converter_types=None) -> dict:
+    """The merged, validated block for a device: the block for its product, then the block for the device itself."""
     out: dict = {}
-    layers = ([(BUILTIN, "builtin")] if builtin else []) + [(mapping or {}, "override")]
-    for table, name in layers:
-        for key in (device.get("product_id"), device.get("id")):
-            if key and key in table:
-                deep_merge(out, validate(copy.deepcopy(table[key]), f"{name}[{key}]", converter_types))
+    for key in (device.get("product_id"), device.get("id")):
+        if key and key in (mapping or {}):
+            deep_merge(out, validate(copy.deepcopy(mapping[key]), f"override[{key}]", converter_types))
     return out
 
 
@@ -224,10 +236,16 @@ def patch_adapter(adapter, block: dict, removed: set[str], schema: DeviceSchema 
 
 
 # --- descriptor layer ------------------------------------------------------------------------------
-def patch_descriptor(assembly, block: dict) -> None:
-    """Apply `props` and `device` to an `Assembly` in place (descriptor and bindings stay consistent)."""
+def patch_descriptor(assembly, block: dict, schema: DeviceSchema | None = None) -> None:
+    """Apply `props` and `device` to an `Assembly` in place (descriptor and bindings stay consistent). `schema` (the
+    patched one) is needed for a property `props` defines from a dp."""
     desc, bindings = assembly.descriptor, assembly.bindings
     for prop, p in (block.get("props") or {}).items():
+        if "src" in p:
+            if prop == "available":
+                raise OverrideError("props.available cannot be overridden")
+            desc["props"][prop], bindings[prop] = _define(prop, p, schema)
+            continue
         d = desc["props"].get(prop)
         if d is None:
             raise OverrideError(f"props.{prop}: the device has no such property "
@@ -238,7 +256,7 @@ def patch_descriptor(assembly, block: dict) -> None:
             del desc["props"][prop]
             bindings.pop(prop, None)
             continue
-        for field in ("label", "class", "category", "unit", "series"):
+        for field in ("label", "class", "category", "unit", "series", "role"):
             if field in p:
                 if p[field] is None:
                     d.pop(field, None)
@@ -268,88 +286,69 @@ def patch_descriptor(assembly, block: dict) -> None:
             del desc["groups"]
 
 
-# --- migration -------------------------------------------------------------------------------------
-_V1_LAYOUT = {"command_dp": ("1", "control"), "set_position_dp": ("2", "percent_control"),
-              "position_dp": ("3", "percent_state")}       # the common Tuya curtain layout v1 assumed as well
-_V1_WORDS = {"payload_open": "open", "payload_close": "close", "payload_stop": "stop"}
+def _define(prop: str, p: dict, schema: DeviceSchema | None):
+    """(definition, binding) of a property `props` defines from the dp `p["src"]`."""
+    from .assemble import Binding
+    from .tuya import ops
+    from .tuya.model import BOOLEAN, ENUM, INTEGER, SchemaError
+    from .tuya.runtime import EntityPlan
 
+    where, code = f"props.{prop}", p["src"]
+    spec = schema and (schema.status_range.get(code) or schema.function.get(code))
+    if spec is None:
+        raise OverrideError(f"{where}.src: the device has no dp {code!r} (define it in `dp`)")
+    kind = normalize_type(spec.type)
+    try:
+        parsed = spec.parse()
+    except SchemaError as e:
+        raise OverrideError(f"{where}.src: {e}") from e
+    natural = {BOOLEAN: "binary", INTEGER: "number", ENUM: "select"}.get(kind, "text")
+    t = p.get("type", natural)
+    if t not in ("trigger", "text", natural):
+        raise OverrideError(f"{where}.type: {t} does not fit a {kind} dp (use {natural}, text or trigger)")
+    writable = code in schema.function
 
-def _v1_cover(key: str, c: dict, block: dict, warn: list[str]) -> None:
-    """`discovery_overrides.cover` -> dp renames / `remove` / `remap` / `cover_motion`, assuming the standard layout
-    (control 1, percent_control 2, percent_state 3) wherever the v1 block did not name a dp."""
-    dp_of = {k: str(c[k]) if c.get(k) is not None else d for k, (d, _) in _V1_LAYOUT.items()}
-    for k, (default, code) in _V1_LAYOUT.items():
-        if k == "position_dp" or k not in c or c[k] is None or str(c[k]) == default:
-            continue
-        block.setdefault("dp", {}).setdefault(str(c[k]), {"code": code})
-    pos_code = "percent_state"
-    if "position_dp" in c:
-        if c["position_dp"] is None or dp_of["position_dp"] == dp_of["set_position_dp"]:
-            block.setdefault("remove", []).append("percent_state")      # position read back from the target
-            pos_code = "percent_control"
-            if c["position_dp"] is None:
-                warn.append(f"{key}.discovery_overrides.cover.position_dp: null -> percent_state removed")
-        elif dp_of["position_dp"] != "3":
-            block.setdefault("dp", {}).setdefault(dp_of["position_dp"], {"code": "percent_state"})
-    alias = {str(c[k]): std for k, std in _V1_WORDS.items() if k in c and str(c[k]) != std}
-    if alias:
-        block.setdefault("remap", {}).setdefault("control", {})["alias"] = alias
-    if c.get("invert_position"):
-        block.setdefault("remap", {}).setdefault(pos_code, {})["invert"] = True
-    if c.get("invert_set_position") and pos_code != "percent_control":
-        block.setdefault("remap", {}).setdefault("percent_control", {})["invert"] = True
-    states = {std: str(c[f"state_{w}"]) for std, w in (("open", "opening"), ("close", "closing"), ("stop", "stopped"))
-              if f"state_{w}" in c}
-    if c.get("state_stream") == "derived" or (states and c.get("state_dp") is None):
-        # v1 derived the motion in 00_curtain.py, or read it straight off the control dp's words: both are cover_motion
-        words = {std: alias.get(w, w) for std, w in states.items() if alias.get(w, w) != std}
-        block.setdefault("converters", {})["cover_motion"] = {"words": words} if words else {}
-    done = (set(_V1_LAYOUT) | set(_V1_WORDS) | {"invert_position", "invert_set_position", "state_stream", "state_dp"}
-            | {"state_opening", "state_closing", "state_stopped"})
-    if c.get("state_dp") is not None and c.get("state_stream") != "derived":
-        warn.append(f"{key}.discovery_overrides.cover.state_dp: dropped (a state dp of its own is not supported)")
-    for k in sorted(set(c) - done):
-        warn.append(f"{key}.discovery_overrides.cover.{k}: dropped (Home Assistant MQTT payload field)")
+    def to_raw(v):
+        if kind == INTEGER:
+            return ops.validate_int_write(parsed, v)
+        if kind == ENUM:
+            return ops.validate_enum_write(parsed, v)
+        return ops.validate_bool_write(v) if kind == BOOLEAN else v
 
+    def read(codes, slot=None):
+        raw = codes.get(code)
+        if t == "binary":
+            return ops.validate_bool_read(raw)
+        if t == "number":
+            v = ops.validate_int_read(parsed, raw)
+            return None if v is None else int(v) if float(v).is_integer() else v
+        if t == "select":
+            v = ops.validate_enum_read(parsed, raw)
+            return v if v in d["options"] else None
+        return raw if isinstance(raw, str) and raw else None if raw is None else str(raw)
 
-def is_v1(mapping: dict) -> bool:
-    """A rustuya-homeassistant custom_converters mapping (by its keys), as opposed to this module's format."""
-    return any(isinstance(v, dict) and ({"dp_meta", "discovery_overrides", "model"} & set(v))
-               for v in (mapping or {}).values())
-
-
-def from_v1(mapping: dict) -> tuple[dict, list[str]]:
-    """Convert rustuya-homeassistant custom_converters (`dp_meta`, `model`, `discovery_overrides.cover`) to this format.
-
-    Other `discovery_overrides` patch Home Assistant MQTT payload fields and have no counterpart here; they are dropped
-    and reported in the returned warnings, as is anything else that is not understood."""
-    out: dict = {}
-    warn: list[str] = []
-    for key, v in (mapping or {}).items():
-        block: dict = {}
-        if v.get("model"):
-            block["device"] = {"model": v["model"]}
-        for dpid, m in (v.get("dp_meta") or {}).items():
-            vtype = m.get("type", "Integer")
-            values = {k: m[k] for k in ("unit", "min", "max", "step", "scale") if k in m}
-            if vtype == "Integer":
-                values = {"unit": "", "min": 0, "max": 100, "scale": 0, "step": 1, **values}
-            elif m.get("options") or m.get("range"):
-                values = {"range": m.get("options") or m.get("range")}
-            d = {"code": m.get("code", str(dpid)), "type": vtype, "values": values, "mode": "RW"}
-            if m.get("active"):
-                d["report_type"] = "sum"
-            block.setdefault("dp", {})[str(dpid)] = d
-            block["expose_unused"] = True          # v1 gave every dp an entity; a dp defined here was meant to show
-            for k in set(m) - {"code", "type", "unit", "min", "max", "step", "scale", "active", "options", "range"}:
-                warn.append(f"{key}.dp_meta.{dpid}.{k}: dropped")
-        disc = v.get("discovery_overrides") or {}
-        if isinstance(disc.get("cover"), dict):
-            _v1_cover(key, disc["cover"], block, warn)
-        for comp in sorted(set(disc) - {"cover"}):
-            warn.append(f"{key}.discovery_overrides.{comp}: dropped (Home Assistant MQTT payload fields)")
-        for k in set(v) - {"model", "dp_meta", "discovery_overrides"}:
-            warn.append(f"{key}.{k}: dropped")
-        if block:
-            out[key] = block
-    return out, warn
+    d: dict = {"type": t}
+    if t == "number":
+        for k, v in (("min", parsed.min), ("max", parsed.max), ("step", parsed.step)):
+            d[k] = p.get(k, ops.scale_value(parsed, v))
+            d[k] = int(d[k]) if float(d[k]).is_integer() else d[k]
+        if p.get("unit", parsed.unit):
+            d["unit"] = p.get("unit", parsed.unit)
+    elif t == "select":
+        d["options"] = list(p.get("options") or parsed.range)
+    rw = t not in ("trigger", "text") and p.get("rw", writable)
+    if rw and not writable:
+        raise OverrideError(f"{where}.rw: dp {code!r} is not writable (give it mode RW in `dp`)")
+    if t == "trigger" and not writable:
+        raise OverrideError(f"{where}: dp {code!r} is not writable, so it cannot be a trigger")
+    if rw:
+        d["rw"] = True
+    for k in ("role", "label", "class", "category", "series"):
+        if p.get(k) is not None:
+            d[k] = p[k]
+    d["src"] = code
+    plan = EntityPlan("override", code, {}, {}, (code,))
+    if t == "trigger":
+        return d, Binding(prop, plan, write=lambda v, codes: [{"code": code, "value": to_raw(p["send"])}])
+    return d, Binding(prop, plan, read=read,
+                      write=(lambda v, codes: [{"code": code, "value": to_raw(v)}]) if rw else None)

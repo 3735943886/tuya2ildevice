@@ -15,7 +15,7 @@ import pathlib
 from typing import Any
 
 from . import overrides as ov
-from .assemble import UNSUPPORTED, Assembly, assemble
+from .assemble import UNSUPPORTED, Assembly, Binding, assemble
 from .checks import Rejected, check_command
 from .converters import BUILTIN, Converter, as_result
 from .fallback import unused_plans
@@ -40,6 +40,7 @@ from .tuya.model import DeviceSchema, DpSpec, SchemaError
 from .tuya.quirks import apply_quirk, apply_status_quirk, device_info, quirk_for
 from .tuya.runtime import (
     ActionDPCodeNotFound,
+    EntityPlan,
     HostEnv,
     WriteRejected,
     classify,
@@ -81,11 +82,11 @@ class TuyaDriver:
     """`device`: id, category, product_id, name, function, status_range, local_strategy, status (Tuya cloud record).
     `dpmap`: extra ``{dp id: code}`` for a device that has no `local_strategy`.
     `overrides`: user overrides (see `overrides.py`), a ``{product_id or device id: block}`` mapping.
-    `expose_unused`: give every dp no platform table claimed a property of its own (as rustuya-homeassistant v1 did); off by default, which is what Home Assistant core's tuya integration does.
+    `expose_unused`: give every dp no platform table claimed a property of its own; off by default, which is what Home Assistant core's tuya integration does.
     `allow_hazardous`: also offer writes for a garage door or gate cover (il.md S-1); off by default.
     `converter_types`: extra named converters (``{name: factory(config) -> Converter}``, e.g. from a user's `.py`
     files) that an override block can name in `converters`, next to the built-in ones.
-    `use_quirks`: the built-in quirks and the built-in overrides (`overrides.BUILTIN`); on by default."""
+    `use_quirks`: the built-in quirks; on by default."""
 
     def __init__(self, device: dict, *, env: HostEnv | None = None, use_quirks: bool = True,
                  dpmap: dict[str, str] | None = None, allow_hazardous: bool = False,
@@ -97,7 +98,7 @@ class TuyaDriver:
             schema = apply_quirk(schema, quirk)
             schema.status = apply_status_quirk(quirk, schema.status)
         types = {**BUILTIN, **(converter_types or {})}
-        block = ov.find(overrides, device, types, builtin=use_quirks)
+        block = ov.find(overrides, device, types)
         dpcodes = {**{str(k): v for k, v in schema.dpmap.items()}, **{str(k): v for k, v in (dpmap or {}).items()},
                    **Adapter.from_local_strategy(device.get("local_strategy") or {}).codes()}
         schema, removed = ov.patch_schema(schema, block, dpcodes)
@@ -105,18 +106,26 @@ class TuyaDriver:
         for dpid, code in {**{str(k): v for k, v in schema.dpmap.items()}, **(dpmap or {})}.items():
             self.adapter.entries.setdefault(str(dpid), (code, "default", {}))
         ov.patch_adapter(self.adapter, block, removed, schema)
-        plans = classify(schema, env or default_env()).entities
-        if block.get("expose_unused", expose_unused):
+        plans = classify(schema, env or default_env()).entities if block.get("auto", True) else []
+        if block.get("auto", True) and block.get("expose_unused", expose_unused):
             used = {c for p in plans if p.platform not in UNSUPPORTED for c in p.depends_on}
             plans = plans + unused_plans(schema, self.adapter.entries, used)
         self.assembly: Assembly = assemble(schema, plans, device_info(schema, quirk), allow_hazardous=allow_hazardous)
         self.converters: list[Converter] = self._make_converters(device, block, converters, types)
-        for conv in self.converters:
+        owner: dict[str, int] = {}
+        for idx, conv in enumerate(self.converters):
             for name, definition in conv.props().items():
-                if name in self.assembly.descriptor["props"] or "rw" in definition:
-                    raise ov.OverrideError(f"converter property {name!r}: taken, or not read only")
-                self.assembly.descriptor["props"][name] = definition
-        ov.patch_descriptor(self.assembly, block)
+                if name == "available" or name in owner:
+                    raise ov.OverrideError(f"converter property {name!r}: taken by {'the driver' if name == 'available' else 'another converter'}")
+                owner[name] = idx
+                self.assembly.descriptor["props"][name] = dict(definition)
+                writes = definition.get("rw") or definition.get("type") == "trigger"
+                if writes and type(conv).write is Converter.write:
+                    raise ov.OverrideError(f"converter property {name!r}: writable, but the converter has no write()")
+                self.assembly.bindings[name] = Binding(
+                    name, EntityPlan("converter", name, {}, {}, ()),
+                    write=(lambda v, codes, c=conv, n=name: _commands(c.write(n, v, codes))) if writes else None)
+        ov.patch_descriptor(self.assembly, block, schema)
         self.descriptor: dict = self.assembly.descriptor
         self.unsupported: list[str] = self.assembly.unsupported
         self.timers: set[str] = set()                # names of the timers the converters have set
@@ -240,7 +249,8 @@ class TuyaDriver:
     def _converted(self, idx: int, result: Any, outs: list) -> None:
         r = as_result(result)
         for prop, value in r.values.items():
-            if prop in self.descriptor["props"]:            # an override may have hidden it
+            b = self.assembly.bindings.get(prop)
+            if b is not None and b.plan.platform == "converter":    # an override may have hidden or redefined it
                 self._set(prop, value, outs)
         for name, after in r.timers.items():
             full = f"c{idx}:{name}"
@@ -280,6 +290,13 @@ class TuyaDriver:
         if missing or not dps:
             return [Reject(cmd.prop, "unsupported", f"no dp for {missing or 'command'}")]
         return [SendMessage("set", {"dps": dps})]
+
+
+def _commands(out: Any) -> list[dict]:
+    """A converter's `write` result as engine commands."""
+    if isinstance(out, dict):
+        return [{"code": k, "value": v} for k, v in out.items()]
+    return list(out or [])
 
 
 _MISSING = object()

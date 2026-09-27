@@ -145,21 +145,17 @@ CONVERTERS = {"lit": Lit}
 """
 
 
-def test_an_overrides_directory_loads_json_v1_json_and_py(tmp_path):
+def test_an_overrides_directory_loads_json_and_py(tmp_path):
     (tmp_path / "10_base.json").write_text(json.dumps({"p": {"device": {"model": "A"}, "converters": {"lit": {}}}}))
-    (tmp_path / "20_v1.json").write_text(json.dumps({"q": {"model": "Old", "discovery_overrides": {"light": {}}}}))
     (tmp_path / "99_local.json").write_text(json.dumps({"p": {"device": {"model": "B"}}}))
     (tmp_path / "lit.py").write_text(CONVERTER_PY)
-    (tmp_path / "old_curtain.py").write_text("def setup(api):\n    pass\n")
     (tmp_path / "broken.py").write_text("raise RuntimeError('boom')\n")
     (tmp_path / "manifest.json").write_text("not even json")
     loaded = load_overrides(tmp_path)
-    assert loaded.overrides == {"p": {"device": {"model": "B"}, "converters": {"lit": {}}},
-                                "q": {"device": {"model": "Old"}}}
+    assert loaded.overrides == {"p": {"device": {"model": "B"}, "converters": {"lit": {}}}}
     assert set(loaded.converter_types) == {"lit"}
     warned = " ".join(loaded.warnings)
-    assert "old_curtain.py" in warned and "v1 plugin" in warned and "broken.py: RuntimeError" in warned
-    assert "20_v1.json" in warned and "manifest" not in warned
+    assert "broken.py: RuntimeError" in warned and "manifest" not in warned
     assert load_overrides(tmp_path / "missing").overrides == {}
 
 

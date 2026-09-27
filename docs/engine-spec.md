@@ -1,7 +1,6 @@
 # Tuya DP engine — specification (draft 2)
 
-> This document was written when the engine lived in rustuya-homeassistant as "tuya2ha IL v2". It is now the
-> `tuya2ildevice.tuya` package. "IL" and "tuya2ha" below, and in docs/analysis/, mean this engine's own model,
+> The engine is the `tuya2ildevice.tuya` package. "IL" and "tuya2ha" below, and in docs/analysis/, mean this engine's own model,
 > **not** the ildevice IL (which the top-level package produces from the engine's entity plans).
 
 Changes vs draft 1: incorporates PHASE3_SPEC_REVIEW.md B1-B8, I1-I10, M1-M10
@@ -434,7 +433,6 @@ speed,Arg(percentage))`, same for preset; set_percentage:
 **H. Climate**: 6.4 + `enum_map_filtered/unfiltered/unmapped_options` + `Append(presets? ...)`.
 
 ## 14. Open questions (defaults apply if unanswered)
-Q1 Legacy v1 (MQTT-discovery CLI/plugin): default keep `tuya2ha.legacy` until migrated.
 Q2 Residual/unknown dps: default NONE (exact parity); an OPT-IN residual layer can be added
    later outside the parity tests.
 Q3 Raise paths P-13/P-14/P-22: default DEVIATE as tagged (SchemaError per device / UNKNOWN).

@@ -1,12 +1,10 @@
 """User overrides as files: a `custom_converters/` directory (or one `.json` file), loaded and followed as it changes.
 
 - `*.json`: override mappings (see `tuya2ildevice.overrides`), deep-merged in filename order, so a later file (say
-  `99_local.json`) refines an earlier one. A file in rustuya-homeassistant v1's format (`dp_meta`,
-  `discovery_overrides`, `model`) is converted with `from_v1`; what it cannot carry is reported.
+  `99_local.json`) refines an earlier one.
 - `*.py`: code converters. A file defines ``CONVERTERS = {"name": factory}`` (`factory(config) -> Converter`, a
   `Converter` subclass taking its config works) and an override block turns one on for a product or a device with
-  ``{"converters": {"name": {...config...}}}``. The code runs in-process: trust it like any plugin. A v1 file (it
-  defines `setup(api)` for rustuya-manager's plugin runtime) is not loaded; it is reported instead.
+  ``{"converters": {"name": {...config...}}}``. The code runs in-process: trust it like any plugin.
 
 `manifest.json` and files starting with `.` or `_` are skipped. Nothing here raises for a bad file: a file that cannot
 be read, parsed or imported is left out and reported in `OverrideSet.warnings`, and the rest still loads.
@@ -24,7 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from ..overrides import OverrideError, from_v1, is_v1, merge_all
+from ..overrides import OverrideError, merge_all
 from .runner import Runner
 
 _LOGGER = logging.getLogger(__name__)
@@ -64,10 +62,6 @@ def _load_py(p: Path) -> tuple[dict, str | None]:
         return {}, f"{p.name}: {type(e).__name__}: {e}"
     types = getattr(module, "CONVERTERS", None)
     if types is None:
-        if callable(getattr(module, "setup", None)):
-            return {}, (f"{p.name}: a rustuya-homeassistant v1 plugin (setup(api)); not loaded. Port it to a "
-                        "tuya2ildevice Converter and list it in CONVERTERS: "
-                        "https://github.com/3735943886/tuya2ildevice/blob/master/docs/porting-v1-converters.md")
         return {}, f"{p.name}: defines no CONVERTERS"
     if not isinstance(types, dict) or not all(isinstance(k, str) and callable(v) for k, v in types.items()):
         return {}, f"{p.name}: CONVERTERS must map names to factories"
@@ -84,9 +78,6 @@ def load_overrides(path: str | Path) -> OverrideSet:
                 data = json.loads(p.read_text("utf-8"))
                 if not isinstance(data, dict):
                     raise ValueError("expected an object keyed by product or device id")
-                if is_v1(data):
-                    data, warn = from_v1(data)
-                    out.warnings += [f"{p.name}: {w}" for w in warn]
                 mappings.append(data)
             else:
                 types, warn = _load_py(p)

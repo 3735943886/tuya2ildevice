@@ -1,7 +1,6 @@
 """Code converters, sans-IO: per-device objects that derive extra ildevice properties from the device's dp values.
 
-This is what rustuya-homeassistant's ``custom_converters/*.py`` did (derive a value from several dps, keep state
-between packets). A converter is created per device, sees the driver's full dp-code state on every packet, and
+A converter derives a value from several dps and keeps state between packets. It is created per device, sees the driver's full dp-code state on every packet, and
 returns property values. It never reads a clock or does I/O: when it needs to be woken later it asks for a timer
 and the host's `Timer` input calls it back (il.md R-6).
 
@@ -31,8 +30,15 @@ class Result:
 
 class Converter:
     def props(self) -> dict[str, dict]:
-        """Extra properties, as ildevice property definitions. Read only (no `rw`)."""
+        """Properties, as ildevice property definitions. One with a name the tables already gave replaces it. One
+        with `rw: true` (or a `trigger`) is written through `write`."""
         return {}
+
+    def write(self, prop: str, value: Any, codes: dict[str, Any]) -> dict[str, Any] | list[dict] | None:
+        """A command for one of this converter's writable properties (already checked against its definition; None
+        for a trigger): the dps to send, as ``{code: value}`` (values as the device's codes read them, before the
+        dp's own encoding) or ``[{"code", "value"}]``."""
+        raise NotImplementedError(prop)
 
     def update(self, now: float, codes: dict[str, Any], changed: list[str], active: bool) -> Result | dict | None:
         """A packet arrived. `codes`: every dp value the driver holds (already updated); `changed`: the codes in this
@@ -55,7 +61,7 @@ class CoverMotion(Converter):
     """`cover_state` (il.md: open / closed / opening / closing / stopped) of a curtain or blind that reports no motion
     of its own. At rest it is `closed` or `open` at an end and `stopped` part way (or with no position known).
 
-    Ported from rustuya-homeassistant's ``00_curtain.py``. Config (all optional):
+    Config (all optional):
     ``command`` (default ``control``), ``set_position`` (``percent_control``), ``position`` (``percent_state``): dp codes;
     ``words``: ``{"open": "open", "close": "close", "stop": "stop"}``, what the control dp carries;
     ``invert``: which raw end is closed; default follows the engine's own position (reversed unless

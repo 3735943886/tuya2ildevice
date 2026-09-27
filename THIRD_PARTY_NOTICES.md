@@ -18,11 +18,3 @@ Same author as this project (MIT); the generated data derived from Apache-2.0 so
 `value_convert` strategies of [tuya-device-sharing-sdk](https://github.com/tuya/tuya-device-sharing-sdk)
 (`strategy_repo/`, Apache-2.0) — specifically `Manager._on_device_report`'s read direction — plus the inverse write
 direction the SDK does not have. It is tested against the SDK's own strategies.
-
-## History
-
-This package is the successor of `rustuya-homeassistant`'s `tuya2ha.v2` (later `rustuya_ha.tuya2ha.v2`), split out
-as its own sans-I/O engine so it could target ildevice's IL instead of Home Assistant entities directly; the
-generation/attribution setup above carries over unchanged from that project. See that repository's history for the
-earlier, HA-entity-shaped designs (a vendored `vendor/ha_core/` copy, then a heuristic `tuya2ha` v1 classifier) that
-`tuya2ha.v2` itself replaced.

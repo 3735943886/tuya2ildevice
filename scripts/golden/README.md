@@ -9,12 +9,10 @@ loading is `tests/golden/fixtures.py`. Run with a venv that has `tuya-device-han
    Not included: 22 `test_us_customary_system` variants (orphans, add as a units-policy suite), init/config_flow/diagnostics/services.
    39 fixtures produce no entity on any platform (expected-empty is part of the golden).
 2. fixtures.py — replicates tests/components/tuya/__init__.py::create_device (compact json values, Json status re-stringified, REDACTED -> "").
-3. baseline_v1.py — current tuya2ha v1 vs golden by per-platform COUNT only: 548/1205; 2 fixtures raise. (Floor, not a real parity number.)
-4. quirk_oracle.py + quirk_golden.json — handlers' post-quirk schema for fixtures with a quirk: only 7 of 32 quirks have a real fixture
+3. quirk_oracle.py + quirk_golden.json — handlers' post-quirk schema for fixtures with a quirk: only 7 of 32 quirks have a real fixture
    -> the other 25 need synthetic devices (built from each quirk's declared dps) in Phase 4b.
 Open in 4b: golden comparison contract per IL (which fields are asserted per platform), dispatch-behaviour goldens (service calls / state updates)
 are NOT in snapshots (they live in core's test_*.py parametrized tests) -> extract those separately.
-Location decision pending: eventual home rustuya-homeassistant/tests/golden/.
 
 ## Phase 4b additions (2026-09-20)
 - extract_actions.py -> actions_golden.json: 61 write-side cases (service call -> commands) via AST from core's parametrized tests

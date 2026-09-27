@@ -1,4 +1,4 @@
-"""Entities for DPs that no platform table claimed (what rustuya-homeassistant v1 called "individual" DPs).
+"""Entities for DPs that no platform table claimed.
 
 Every dp of the device's `local_strategy` that no assembled plan depends on becomes a plain property chosen by its
 Tuya type: Boolean -> binary, Integer -> number, Enum -> select; String, Raw, Json and Bitmap -> a read-only value (text or

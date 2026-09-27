@@ -1,5 +1,5 @@
 """User overrides for non-standard devices: dp renames, `remap` (alias / invert), per-device `expose_unused`, named
-converter types, the built-in curated set and the migration of rustuya-homeassistant v1 custom_converters."""
+converter types and properties defined from a dp."""
 import json
 import pathlib
 
@@ -16,28 +16,11 @@ from tuya2ildevice import (
     TuyaDriver,
     Value,
 )
-from tuya2ildevice.overrides import BUILTIN, OverrideError, from_v1, is_v1
+from tuya2ildevice.overrides import OverrideError
 
 HERE = pathlib.Path(__file__).parent
-PRODUCTS = json.loads((HERE / "v1_default_products.json").read_text())      # cloud schemas of the v1 pack's products
-# the v1 pack's products in this format: one user's own devices, so a user mapping here and never in BUILTIN
-MINE = json.loads((HERE / "v1_default_overrides.json").read_text())
-
-# rustuya-homeassistant's custom_converters/00_default.json, as it shipped
-V1_DEFAULT = {
-    "5rta89nj": {"model": "Sliding Window Opener",
-                 "dp_meta": {"104": {"code": "percent_control", "type": "Integer", "unit": "%", "min": 0, "max": 100,
-                                     "step": 1}}},
-    "f6jujmx0is5td50x": {"discovery_overrides": {"cover": {
-        "position_dp": "2", "state_opening": "open", "state_closing": "close", "state_stopped": "stop",
-        "payload_open": "open", "payload_close": "close", "payload_stop": "stop"}}},
-    "h2wipnagcunsar5r": {"discovery_overrides": {"cover": {
-        "state_dp": "99", "state_stream": "derived", "payload_open": "open", "payload_close": "close",
-        "payload_stop": "stop"}}},
-    "3i3exuay": {"discovery_overrides": {"cover": {
-        "state_dp": "99", "state_stream": "derived", "payload_open": "open", "payload_close": "close",
-        "payload_stop": "stop"}}},
-}
+PRODUCTS = json.loads((HERE / "sample_products.json").read_text())      # cloud schemas of a window opener and curtains
+MINE = json.loads((HERE / "sample_overrides.json").read_text())          # one installation's overrides for them
 
 
 def _values(outs):
@@ -155,31 +138,7 @@ def test_named_converter_types_from_the_host():
     assert _values(d.handle(1, Message("active", {"3": 10})))["double"] == 30
 
 
-# --- built-in set and v1 migration -----------------------------------------------------------------
-def test_the_builtin_set_ships_empty():
-    assert BUILTIN == {}          # the v1 pack's products are one user's devices, not a curated fix for everyone
-    assert "cover_state" not in TuyaDriver(PRODUCTS["3i3exuay"]).descriptor["props"]
-
-
-def test_a_builtin_set_applies_by_default_and_follows_use_quirks(monkeypatch):
-    monkeypatch.setattr("tuya2ildevice.overrides.BUILTIN", MINE)
-    opener = PRODUCTS["5rta89nj"]
-    assert set(TuyaDriver(opener, use_quirks=False).descriptor["props"]) == {"available"}
-    props = TuyaDriver(opener).descriptor["props"]
-    assert props["percent_control"]["label"] == "Opening" and props["percent_control"].get("rw")
-    assert props["residual_electricity"]["class"] == "battery"
-    for pid in ("f6jujmx0is5td50x", "h2wipnagcunsar5r", "3i3exuay"):
-        d = TuyaDriver(PRODUCTS[pid])
-        assert d.descriptor["kind"] == "cover" and "cover_state" in d.descriptor["props"], pid
-        assert "cover_state" not in TuyaDriver(PRODUCTS[pid], use_quirks=False).descriptor["props"]
-
-
-def test_a_user_block_wins_over_the_builtin_one(monkeypatch):
-    monkeypatch.setattr("tuya2ildevice.overrides.BUILTIN", MINE)
-    d = TuyaDriver(PRODUCTS["5rta89nj"], overrides={"5rta89nj": {"props": {"percent_control": {"label": "Window"}}}})
-    assert d.descriptor["props"]["percent_control"]["label"] == "Window"
-
-
+# --- a whole installation's overrides --------------------------------------------------------------
 def test_position_reads_back_from_the_target_where_the_override_says_so():
     d = TuyaDriver(PRODUCTS["f6jujmx0is5td50x"], overrides=MINE)
     d.handle(0, Connected())
@@ -197,25 +156,89 @@ def test_overridden_descriptors_validate():
         jsonschema.validate(TuyaDriver(dev, overrides=MINE).descriptor, schema)
 
 
-def test_v1_default_converts_to_the_same_overrides():
-    assert is_v1(V1_DEFAULT) and not is_v1(MINE)
-    new, warn = from_v1(V1_DEFAULT)
-    assert warn == []
-    for pid in ("f6jujmx0is5td50x", "h2wipnagcunsar5r", "3i3exuay"):
-        assert new[pid] == MINE[pid], pid
-    opener = {k: v for k, v in MINE["5rta89nj"].items() if k != "props"}      # labels are the fixture's own
-    new_opener = dict(new["5rta89nj"])
-    new_opener["dp"] = {k: {kk: vv for kk, vv in d.items() if kk != "mode"} for k, d in new_opener["dp"].items()}
-    assert new_opener == opener
+# --- properties defined from a dp -----------------------------------------------------------------
+WINDOW = {"5rta89nj": {
+    "dp": {"104": {"code": "percent_control", "type": "Integer", "mode": "RW",
+                   "values": {"unit": "%", "min": 0, "max": 100, "scale": 0, "step": 1}}},
+    "device": {"kind": "cover", "class": "window"},
+    "props": {"position": {"src": "percent_control", "role": "position"},
+              "open": {"src": "percent_control", "type": "trigger", "role": "open", "send": 100},
+              "close": {"src": "percent_control", "type": "trigger", "role": "close", "send": 0},
+              "battery": {"src": "residual_electricity", "role": "battery", "category": "diagnostic"}}}}
 
 
-def test_v1_cover_roles_words_and_inversion():
-    new, warn = from_v1({"x": {"discovery_overrides": {"cover": {
-        "command_dp": 101, "set_position_dp": "2", "position_dp": "5", "invert_position": True,
-        "payload_open": "on", "payload_close": "off", "payload_stop": "stop", "json_attributes_topic": "t"},
-        "climate": {"a": 1}}}})
-    b = new["x"]
-    assert b["dp"] == {"101": {"code": "control"}, "5": {"code": "percent_state"}}
-    assert b["remap"] == {"control": {"alias": {"on": "open", "off": "close"}}, "percent_state": {"invert": True}}
-    assert "converters" not in b
-    assert any("json_attributes_topic" in w for w in warn) and any("discovery_overrides.climate" in w for w in warn)
+def test_a_cover_from_a_position_dp_alone():
+    d = TuyaDriver(PRODUCTS["5rta89nj"], overrides=WINDOW)
+    desc = d.descriptor
+    assert desc["kind"] == "cover" and desc["class"] == "window"
+    assert desc["props"]["position"] == {"type": "number", "min": 0, "max": 100, "step": 1, "unit": "%", "rw": True,
+                                         "role": "position", "src": "percent_control"}
+    assert desc["props"]["open"] == {"type": "trigger", "role": "open", "src": "percent_control"}
+    assert desc["props"]["battery"] == {"type": "number", "min": 0, "max": 100, "step": 1, "unit": "%", "role": "battery",
+                                        "category": "diagnostic", "src": "residual_electricity"}
+    d.handle(0, Connected())
+    assert _values(d.handle(1, Message("active", {"104": 40, "4": 80}))) == {"available": True, "position": 40,
+                                                                              "battery": 80}
+    assert _sent(d.handle(2, Command("position", 70))) == [{"104": 70}]
+    assert _sent(d.handle(3, Command("open", None))) == [{"104": 100}]
+    assert _sent(d.handle(4, Command("close", None))) == [{"104": 0}]
+    assert d.handle(5, Command("position", 101))[0].code == "out_of_range"
+
+
+def test_a_defined_property_follows_remap_and_replaces_the_tables_one():
+    ov = {"cur1": {"remap": {"percent_control": {"invert": True}},
+                   "props": {"position": {"src": "percent_control", "role": "position", "label": "Target"}}}}
+    d = TuyaDriver(curtain(), overrides=ov)
+    assert d.descriptor["props"]["position"]["label"] == "Target" and d.descriptor["props"]["position"]["src"] == "percent_control"
+    d.handle(0, Connected())
+    assert _values(d.handle(1, Message("active", {"2": 30})))["position"] == 70
+    assert _sent(d.handle(2, Command("position", 80))) == [{"2": 20}]
+
+
+def test_auto_false_keeps_only_what_the_block_defines():
+    ov = {"cur1": {"auto": False, "props": {"mode": {"src": "control", "rw": False}}}}
+    d = TuyaDriver(curtain(), overrides=ov)
+    assert set(d.descriptor["props"]) == {"available", "mode"} and "kind" not in d.descriptor
+    assert d.descriptor["props"]["mode"]["type"] == "select" and "rw" not in d.descriptor["props"]["mode"]
+    assert d.handle(0, Command("mode", "open"))[0].code == "read_only"
+
+
+def test_definition_errors_are_loud():
+    for props in ({"x": {"src": "nope"}},                                       # no such dp
+                  {"x": {"src": "percent_control", "type": "trigger"}},         # a trigger needs send
+                  {"x": {"src": "percent_control", "send": 1}},                 # send only on a trigger
+                  {"x": {"src": "percent_control", "type": "binary"}},          # does not fit an Integer
+                  {"available": {"src": "percent_control"}}):
+        with pytest.raises(OverrideError):
+            TuyaDriver(curtain(), overrides={"cur1": {"props": props}})
+    ro = {"x": {"src": "residual_electricity", "rw": True}}                    # status only: not writable
+    with pytest.raises(OverrideError):
+        TuyaDriver(PRODUCTS["5rta89nj"], overrides={"5rta89nj": {"props": ro}})
+
+
+def test_a_python_converter_can_own_a_writable_property():
+    class Speed(Converter):
+        def __init__(self, config):
+            pass
+
+        def props(self):
+            return {"position": {"type": "number", "role": "position", "min": 0, "max": 10, "step": 1, "rw": True}}
+
+        def update(self, now, codes, changed, active):
+            v = codes.get("percent_control")
+            return {"position": None if v is None else v // 10}
+
+        def write(self, prop, value, codes):
+            return {"percent_control": value * 10}
+
+    d = TuyaDriver(curtain(), overrides={"cur1": {"converters": {"tens": {}}}}, converter_types={"tens": Speed})
+    assert d.descriptor["props"]["position"]["max"] == 10
+    d.handle(0, Connected())
+    assert _values(d.handle(1, Message("active", {"2": 40})))["position"] == 4
+    assert _sent(d.handle(2, Command("position", 7))) == [{"2": 70}]
+
+
+@needs_spec
+def test_a_defined_cover_validates():
+    jsonschema = pytest.importorskip("jsonschema")
+    jsonschema.validate(TuyaDriver(PRODUCTS["5rta89nj"], overrides=WINDOW).descriptor, json.loads(SCHEMA.read_text()))

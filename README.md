@@ -4,7 +4,7 @@ The one place that interprets Tuya. Sans-IO Python: takes a Tuya device as [rust
 [rustuya-bridge](https://github.com/3735943886/rustuya-bridge) know it and produces an
 [ildevice](https://github.com/3735943886/ildevice): descriptor, live values and events from dps packets, and dps for
 ildevice commands. It opens no sockets and reads no clock. Other projects
-([rustuya-homeassistant](https://github.com/3735943886/rustuya-homeassistant), ildevice hosts,
+([rustuya-local](https://github.com/3735943886/rustuya-local), ildevice hosts,
 [rustuya-manager](https://github.com/3735943886/rustuya-manager)) import this instead of carrying their own Tuya knowledge.
 
 ```
@@ -31,7 +31,7 @@ d.handle(now, Command("switch_1", "off"))    # -> [SendMessage("set", {"dps": {"
   `control_back_mode` is `back`), so a written value can differ slightly from what is read back.
 - Covers of class garage/gate are read only unless `TuyaDriver(..., allow_hazardous=True)` (il.md S-1).
 - A dp no platform table claims gets no property, as in Home Assistant core; `TuyaDriver(..., expose_unused=True)` gives
-  each one a property chosen by its Tuya type (rustuya-homeassistant v1 did that). Integer, Enum and Boolean are writable only if the dp is
+  each one a property chosen by its Tuya type. Integer, Enum and Boolean are writable only if the dp is
   in `function`; String, Raw, Json and Bitmap are read-only. `config` if writable, else `diagnostic`.
 - Assembled: switch, button, select, number, sensor, binary_sensor, event, light, cover, fan, siren, valve,
   humidifier, climate, alarm (kind `alarm`), vacuum. Not assembled: camera (a stream is outside the IL; `driver.unsupported` lists it).
@@ -70,37 +70,56 @@ Details and the block format are in [overrides.py](src/tuya2ildevice/overrides.p
 | `category` | the Tuya category the tables are chosen by |
 | `remap.<code>.alias` | other words: device value -> standard value, both ways (an Enum's range is translated too) |
 | `remap.<code>.invert` | the other direction: a Boolean negated, an Integer mirrored in its range |
-| `props`, `device` | the finished descriptor: label, class, category, unit, read only, hidden; device label/model |
+| `props`, `device` | the finished descriptor: label, class, category, unit, role, read only, hidden; device kind/class/label/model |
+| `props.<name>` with a `src` | a property defined from a dp (below), replacing one of that name |
 | `converters` | code converters by name (below) |
 | `expose_unused` | this device only: every dp no table claims gets a property of its own |
+| `auto: false` | no property from the tables at all: only what `props` defines and the converters give |
+
+A property defined from a dp builds what the tables cannot, such as a cover from a position dp alone (a window opener
+whose category has no cover table):
+
+```json
+{ "<product_id>": {
+    "dp":     {"104": {"code": "percent_control", "type": "Integer", "mode": "RW",
+                       "values": {"unit": "%", "min": 0, "max": 100, "scale": 0, "step": 1}}},
+    "device": {"kind": "cover", "class": "window"},
+    "props":  {"position": {"src": "percent_control", "role": "position"},
+               "open":     {"src": "percent_control", "type": "trigger", "role": "open", "send": 100},
+               "close":    {"src": "percent_control", "type": "trigger", "role": "close", "send": 0},
+               "battery":  {"src": "residual_electricity", "role": "battery", "category": "diagnostic"}} } }
+```
+
+Its `type` follows the dp's (Boolean `binary`, Integer `number`, Enum `select`, others `text`) unless given; `min`,
+`max`, `step`, `unit` and `options` come from the dp unless given; it is writable when the dp is in `function` (`rw:
+false` makes it read only); a `trigger` writes its `send` value. Values go through `remap` like any other.
 
 Unknown keys raise `OverrideError`. `Hub.reload(mapping)` applies new overrides live: republishes changed descriptors
 and clears removed properties.
 
-The package can ship a curated set, [overrides.json](src/tuya2ildevice/overrides.json) (`overrides.BUILTIN`, empty
-for now), for products known to need it; a user's block for the same product wins key by key, and `use_quirks=False` turns it off
-with the quirks. `from_v1(custom_converters)` converts rustuya-homeassistant v1 files: `dp_meta`, `model` and
-`discovery_overrides.cover` (dp roles, command words, inversion, derived state) map to the keys above; other
-`discovery_overrides` (Home Assistant payload fields) are dropped with a warning.
+The package carries no block for any product or device. A fix for a model goes in a converters file: the user's own,
+or the [override pack](pack/README.md), which hosts copy into that directory.
 
 ## Code converters
 
-The equivalent of v1's `custom_converters/*.py`: a per-device `Converter` object sees the driver's dp state (after
-`remap`) on every packet and returns derived property values (and timer requests, since it cannot read a clock). See
-[converters.py](src/tuya2ildevice/converters.py).
+A per-device `Converter` object sees the driver's dp state (after `remap`) on every packet and returns property values
+(and timer requests, since it cannot read a clock). Its properties may replace the tables' ones of the same name, and
+one with `rw: true` (or a trigger) is written through its `write(prop, value, codes)`, which returns the dps to send as
+`{code: value}`. See [converters.py](src/tuya2ildevice/converters.py).
 
 ```python
 class MyConverter(Converter):
     def __init__(self, config): ...
     def props(self):  return {"filter_low": {"type": "binary", "class": "problem"}}
     def update(self, now, codes, changed, active):  return {"filter_low": codes.get("filter_life", 100) < 10}  # or Result(...)
+    def write(self, prop, value, codes):  return {"<code>": value}        # only for rw / trigger properties
 
 TuyaDriver(device, converters={"<product_id or device id>": [lambda device: MyConverter({})]})
 TuyaDriver(device, converter_types={"my": MyConverter}, overrides={"<product_id>": {"converters": {"my": {}}}})
 ```
 
 Built-in ones are named in an override block: `{"<product_id>": {"converters": {"cover_motion": {"settle": 5}}}}`.
-`cover_motion` (ported from v1's `00_curtain.py`) derives the cover's `cover_state` role (open / closed / opening /
+`cover_motion` derives the cover's `cover_state` role (open / closed / opening /
 closing / stopped) from the control, set-position and position dps; a snapshot never starts motion. Timers come out as `SetTimer` (driver) or
 `Schedule` (`Hub`); the host calls back with `Timer` / `hub.on_timer(now, id, name)`.
 
@@ -109,11 +128,8 @@ closing / stopped) from the control, set-position and position dps; a snapshot n
 `tuya2ildevice.host.load_overrides(path)` reads a `custom_converters/` directory (or one `.json` file) and
 `OverrideWatcher(path, runner, base=...)` follows it, reloading the Hub when a file changes:
 
-- `*.json`: override mappings, deep-merged in filename order (`99_local.json` refines `10_base.json`); v1 files are
-  converted with `from_v1`.
+- `*.json`: override mappings, deep-merged in filename order (`99_local.json` refines `10_base.json`).
 - `*.py`: define `CONVERTERS = {"name": factory}`; an override block turns one on by name. The code runs in-process.
-  A v1 plugin file (`setup(api)`) is reported, not loaded: [docs/porting-v1-converters.md](docs/porting-v1-converters.md)
-  shows how to port one.
 - A bad file is reported and left out; the rest still loads. Overrides the Hub refuses leave the ones in effect.
 
 ### The override pack

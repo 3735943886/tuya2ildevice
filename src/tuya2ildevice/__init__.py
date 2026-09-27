@@ -26,7 +26,7 @@ from .io import (
                  Value,
 )
 from .mqtt import BridgeCommand, Hub, IlTopics, Publish, Schedule, Subscribe, Unschedule
-from .overrides import OverrideError, from_v1, merge_all
+from .overrides import OverrideError, merge_all
 
 
 def preload() -> None:
@@ -68,7 +68,6 @@ __all__ = [
     "check_command",
     "default_env",
     "descriptor_of",
-    "from_v1",
     "merge_all",
     "preload",
     "schema_of",

@@ -8,7 +8,7 @@ copied files like the user's own.
 
 `requires` / `until` (optional) bound the `LEVEL` of tuya2ildevice a file is for: a file that needs a newer
 tuya2ildevice is not copied, and one whose fix is built into this tuya2ildevice (its `until` is at most `LEVEL`) is
-removed. `LEVEL` goes up when a release adds something pack files may use, or takes pack files into `overrides.json`.
+removed. `LEVEL` goes up when a release adds something pack files may use, or makes a pack file unnecessary.
 
 Ownership is explicit. `sync()` records what it wrote, by name and hash, in `.tuya2ildevice_pack.json` in the directory
 (dot files are not loaded) and only ever writes or removes those files:
