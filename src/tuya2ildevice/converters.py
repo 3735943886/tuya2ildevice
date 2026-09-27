@@ -7,9 +7,9 @@ and the host's `Timer` input calls it back (il.md R-6).
 
     class MyConverter(Converter):
         def props(self):                     # extra properties (read only), may carry a role
-            return {"motion": {"type": "select", "role": "motion", "options": ["opening", "closing", "stopped"]}}
+            return {"filter_low": {"type": "binary", "class": "problem"}}
         def update(self, now, codes, changed, active):
-            return {"motion": "stopped"}     # or Result(values={...}, timers={"settle": 5})
+            return {"filter_low": codes.get("filter_life", 100) < 10}     # or Result(values={...}, timers={"t": 5})
 
 Register with ``TuyaDriver(device, converters={product_id_or_device_id: factory})`` (`factory(device) -> Converter`, or a
 list of factories), or by name in an override block: ``{"converters": {"cover_motion": {...config...}}}``.
@@ -52,7 +52,8 @@ def as_result(r: Result | dict | None) -> Result:
 
 # --- built-in: cover motion ----------------------------------------------------------------------------
 class CoverMotion(Converter):
-    """`motion` (opening / closing / stopped) of a curtain or blind that reports no motion of its own.
+    """`cover_state` (il.md: open / closed / opening / closing / stopped) of a curtain or blind that reports no motion
+    of its own. At rest it is `closed` or `open` at an end and `stopped` part way (or with no position known).
 
     Ported from rustuya-homeassistant's ``00_curtain.py``. Config (all optional):
     ``command`` (default ``control``), ``set_position`` (``percent_control``), ``position`` (``percent_state``): dp codes;
@@ -65,7 +66,7 @@ class CoverMotion(Converter):
     the target or an end, and any readback / snapshot settle it. A snapshot never starts motion (its dps describe the
     last command, not a move in progress).
     """
-    OPTIONS = ("opening", "closing", "stopped")
+    OPTIONS = ("open", "closed", "opening", "closing", "stopped")
 
     def __init__(self, config: dict | None = None):
         c = config or {}
@@ -85,7 +86,7 @@ class CoverMotion(Converter):
         self.target: float | None = None           # where the current move should end (0 closed .. 100 open)
 
     def props(self) -> dict[str, dict]:
-        return {"motion": {"type": "select", "role": "motion", "options": list(self.OPTIONS)}}
+        return {"cover_state": {"type": "select", "role": "cover_state", "options": list(self.OPTIONS)}}
 
     def _open_pct(self, codes: dict, raw: Any) -> float | None:
         if isinstance(raw, bool) or not isinstance(raw, (int, float)):
@@ -93,12 +94,16 @@ class CoverMotion(Converter):
         inv = self.invert if self.invert is not None else codes.get("control_back_mode") != "back"
         return 100 - raw if inv else float(raw)
 
-    def _out(self, state: str | None, timers: dict | None = None) -> Result:
-        if state is not None:
-            self.state = state
-            if state == "stopped":
-                self.target = None
-        return Result({"motion": state} if state is not None else {}, timers or {})
+    def _out(self, codes: dict, state: str | None, timers: dict | None = None) -> Result:
+        """`state` is the motion (opening / closing / stopped); at rest the value says which end, if any."""
+        if state is None:
+            return Result({}, timers or {})
+        self.state = state
+        if state == "stopped":
+            self.target = None
+            pos = self._open_pct(codes, codes.get(self.position))
+            state = "stopped" if pos is None else "closed" if pos <= 0 else "open" if pos >= 100 else "stopped"
+        return Result({"cover_state": state}, timers or {})
 
     def update(self, now, codes, changed, active) -> Result:
         pos = self._open_pct(codes, codes.get(self.position))
@@ -131,10 +136,10 @@ class CoverMotion(Converter):
         moving = (state or self.state) in ("opening", "closing") and state != "stopped"
         if self.settle:
             timers["settle"] = self.settle if moving else None
-        return self._out(state, timers)
+        return self._out(codes, state, timers)
 
     def timer(self, now, name, codes) -> Result:
-        return self._out("stopped") if name == "settle" and self.state in ("opening", "closing") else Result()
+        return self._out(codes, "stopped") if name == "settle" and self.state in ("opening", "closing") else Result()
 
 
 BUILTIN: dict[str, Callable[[dict], Converter]] = {"cover_motion": CoverMotion}

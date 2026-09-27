@@ -92,16 +92,16 @@ The equivalent of v1's `custom_converters/*.py`: a per-device `Converter` object
 ```python
 class MyConverter(Converter):
     def __init__(self, config): ...
-    def props(self):  return {"motion": {"type": "select", "role": "motion", "options": ["opening", "closing", "stopped"]}}
-    def update(self, now, codes, changed, active):  return {"motion": "stopped"}      # or Result(values=..., timers=...)
+    def props(self):  return {"filter_low": {"type": "binary", "class": "problem"}}
+    def update(self, now, codes, changed, active):  return {"filter_low": codes.get("filter_life", 100) < 10}  # or Result(...)
 
 TuyaDriver(device, converters={"<product_id or device id>": [lambda device: MyConverter({})]})
 TuyaDriver(device, converter_types={"my": MyConverter}, overrides={"<product_id>": {"converters": {"my": {}}}})
 ```
 
 Built-in ones are named in an override block: `{"<product_id>": {"converters": {"cover_motion": {"settle": 5}}}}`.
-`cover_motion` (ported from v1's `00_curtain.py`) derives the cover's `motion` role (opening / closing / stopped) from the
-control, set-position and position dps; a snapshot never starts motion. Timers come out as `SetTimer` (driver) or
+`cover_motion` (ported from v1's `00_curtain.py`) derives the cover's `cover_state` role (open / closed / opening /
+closing / stopped) from the control, set-position and position dps; a snapshot never starts motion. Timers come out as `SetTimer` (driver) or
 `Schedule` (`Hub`); the host calls back with `Timer` / `hub.on_timer(now, id, name)`.
 
 ## Overrides as files

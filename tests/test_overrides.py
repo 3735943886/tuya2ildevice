@@ -97,7 +97,7 @@ def test_alias_is_applied_before_the_converters_see_the_value():
     d = TuyaDriver(_odd_curtain(), overrides=ov)
     d.handle(0, Connected())
     d.handle(1, Message("state", {"3": 50}))
-    assert _values(d.handle(2, Message("active", {"1": "on"})))["motion"] == "opening"
+    assert _values(d.handle(2, Message("active", {"1": "on"})))["cover_state"] == "opening"
 
 
 def test_invert_mirrors_an_integer_and_negates_a_boolean():
@@ -158,7 +158,7 @@ def test_named_converter_types_from_the_host():
 # --- built-in set and v1 migration -----------------------------------------------------------------
 def test_the_builtin_set_ships_empty():
     assert BUILTIN == {}          # the v1 pack's products are one user's devices, not a curated fix for everyone
-    assert "motion" not in TuyaDriver(PRODUCTS["3i3exuay"]).descriptor["props"]
+    assert "cover_state" not in TuyaDriver(PRODUCTS["3i3exuay"]).descriptor["props"]
 
 
 def test_a_builtin_set_applies_by_default_and_follows_use_quirks(monkeypatch):
@@ -170,8 +170,8 @@ def test_a_builtin_set_applies_by_default_and_follows_use_quirks(monkeypatch):
     assert props["residual_electricity"]["class"] == "battery"
     for pid in ("f6jujmx0is5td50x", "h2wipnagcunsar5r", "3i3exuay"):
         d = TuyaDriver(PRODUCTS[pid])
-        assert d.descriptor["kind"] == "cover" and "motion" in d.descriptor["props"], pid
-        assert "motion" not in TuyaDriver(PRODUCTS[pid], use_quirks=False).descriptor["props"]
+        assert d.descriptor["kind"] == "cover" and "cover_state" in d.descriptor["props"], pid
+        assert "cover_state" not in TuyaDriver(PRODUCTS[pid], use_quirks=False).descriptor["props"]
 
 
 def test_a_user_block_wins_over_the_builtin_one(monkeypatch):

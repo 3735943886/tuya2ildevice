@@ -218,27 +218,29 @@ from tuya2ildevice.io import CancelTimer, SetTimer, Timer
 
 
 def _motion(outs):
-    return [o.value for o in outs if isinstance(o, Value) and o.prop == "motion"]
+    return [o.value for o in outs if isinstance(o, Value) and o.prop == "cover_state"]
 
 
 def test_cover_motion_builtin():
     cfg = {"cur1": {"converters": {"cover_motion": {"invert": False, "settle": 5}}}}
     d = TuyaDriver(curtain(), overrides=cfg)
-    assert d.descriptor["props"]["motion"] == {"type": "select", "role": "motion", "options": ["opening", "closing", "stopped"]}
+    assert d.descriptor["props"]["cover_state"] == {"type": "select", "role": "cover_state",
+                                                    "options": ["open", "closed", "opening", "closing", "stopped"]}
     d.handle(0, Connected())
-    assert _motion(d.handle(1, Message("state", {"3": 0}))) == ["stopped"]         # a snapshot never starts motion
+    assert _motion(d.handle(1, Message("state", {"3": 0}))) == ["closed"]          # a snapshot never starts motion
     outs = d.handle(2, Message("active", {"1": "open"}))
     assert _motion(outs) == ["opening"] and SetTimer("c0:settle", 5.0) in outs
     assert _motion(d.handle(3, Message("active", {"3": 50}))) == []                # still moving
     outs = d.handle(4, Message("active", {"3": 100}))
-    assert _motion(outs) == ["stopped"] and CancelTimer("c0:settle") in outs       # arrived at the end
+    assert _motion(outs) == ["open"] and CancelTimer("c0:settle") in outs          # arrived at the end
     assert _motion(d.handle(5, Message("active", {"2": 20}))) == ["closing"]       # set-position below the current one
     assert _motion(d.handle(6, Message("active", {"3": 20}))) == ["stopped"]       # reached the target
     d.handle(7, Message("active", {"1": "close"}))
     assert _motion(d.handle(8, Timer("c0:settle"))) == ["stopped"]                 # no position report: settle timer
+    assert _motion(d.handle(9, Message("state", {"3": 0}))) == ["closed"]          # at rest at an end: that end
     d.handle(9, Message("active", {"1": "open"}))
     outs = d.handle(10, Disconnected())
-    assert Absent("motion") in outs and CancelTimer("c0:settle") in outs
+    assert Absent("cover_state") in outs and CancelTimer("c0:settle") in outs
 
 
 def test_cover_motion_follows_engine_position_by_default():

@@ -95,8 +95,8 @@ def test_timers_surface_as_schedule_and_on_timer():
     hub.on_bridge_message(0, "cur1", Connected())
     hub.on_bridge_message(1, "cur1", Message("state", {"3": 50}))
     out = hub.on_bridge_message(2, "cur1", Message("active", {"1": "close"}))
-    assert Schedule("cur1", "c0:settle", 5.0) in out and Publish("il", "il/cur1/motion", "closing", True, 1) in out
-    assert hub.on_timer(3, "cur1", "c0:settle") == [Publish("il", "il/cur1/motion", "stopped", True, 1)]
+    assert Schedule("cur1", "c0:settle", 5.0) in out and Publish("il", "il/cur1/cover_state", "closing", True, 1) in out
+    assert hub.on_timer(3, "cur1", "c0:settle") == [Publish("il", "il/cur1/cover_state", "stopped", True, 1)]
     hub.on_bridge_message(4, "cur1", Message("active", {"1": "open"}))
     assert Unschedule("cur1", "c0:settle") in hub.on_bridge_message(5, "cur1", Disconnected())
 
