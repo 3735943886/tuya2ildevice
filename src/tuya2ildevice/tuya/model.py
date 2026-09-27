@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import Any, Literal
 
 # --- 1.1 types --------------------------------------------------------------
@@ -137,8 +137,7 @@ def resolve(schema: DeviceSchema, ref: DpRef) -> ResolvedDp | None:
             spec = entry.parse()
             if spec is None:
                 continue
-            if kind == INTEGER and schema.type_overrides.get(code) == "invert_int_max":
-                spec = replace(spec, inverted=True)
+            # a quirk's `invert_int_max` only cancelled core's cover reversal, which is gone (platforms.cover)
             sr = schema.status_range.get(code)
             return ResolvedDp(code, spec, kind, sr.report_type if sr else None)
     return None

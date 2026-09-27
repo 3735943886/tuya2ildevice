@@ -74,8 +74,9 @@ def test_when_guard_and_status_quirk_and_device_info():
     assert di["manufacturer"] == "Konyks" and di["model_id"] is None
 
 
-def test_invert_int_max_reaches_cover():
-    """Quirk TypeOverride: the inverted TypeInformation cancels the cover wrapper's own inversion."""
+def test_invert_int_max_leaves_the_position_as_the_device_counts_it():
+    """Quirk TypeOverride invert_int_max only cancelled core's cover reversal; the engine does not reverse, so the
+    position is the device's number with or without the quirk."""
     from tuya2ildevice.tuya import platforms  # noqa: F401
     from tuya2ildevice.tuya.runtime import classify
     rng = '{"unit":"%","min":0,"max":100,"scale":0,"step":1}'
@@ -89,10 +90,9 @@ def test_invert_int_max_reaches_cover():
         return next(e for e in classify(sch, platforms=("cover",)).entities if e.key == "control")
     plain, inv = plan("unmapped_pid"), plan("68nvbio9")
     st = {"percent_state": 30}
-    assert plain.read(st)["current_position"] == 70            # core default: percentage inverted
-    assert inv.read(st)["current_position"] == 30              # quirk pre-inverts, wrapper's inversion cancels
-    assert plain.write("set_cover_position", {"position": 25}, st) == [{"code": "percent_control", "value": 75}]
-    assert inv.write("set_cover_position", {"position": 25}, st) == [{"code": "percent_control", "value": 25}]
+    for p in (plain, inv):
+        assert p.read(st)["current_position"] == 30
+        assert p.write("set_cover_position", {"position": 25}, st) == [{"code": "percent_control", "value": 25}]
 
 
 if __name__ == "__main__":

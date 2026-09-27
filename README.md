@@ -27,8 +27,11 @@ d.handle(now, Command("switch_1", "off"))    # -> [SendMessage("set", {"dps": {"
   `state` (readback, snapshot: values only). `json` is a flat `{dp: value}` map (the host has already decoded whatever
   the bridge's own wire payload looked like — see `Hub.on_bridge_message` below).
 - `Command(prop, value)` is checked as il.md section 5 says before anything is sent; failures come back as `Reject`.
-  Values convert as in Home Assistant core (brightness goes through 0..255; cover position is reversed unless
-  `control_back_mode` is `back`), so a written value can differ slightly from what is read back.
+  Values convert as in Home Assistant core (brightness goes through 0..255), so a written value can differ slightly
+  from what is read back. A cover's position is the device's own number, never mirrored (core mirrors it); a device
+  that counts the other way gets `remap.invert`.
+- A `passive` report (a live one: the host drops retained ones) that changes a value is the device's own push, like
+  `active`: converters see it as live and events fire. An increment (`report_type: sum`) is added only from `active`.
 - Covers of class garage/gate are read only unless `TuyaDriver(..., allow_hazardous=True)` (il.md S-1).
 - A dp no platform table claims gets no property, as in Home Assistant core; `TuyaDriver(..., expose_unused=True)` gives
   each one a property chosen by its Tuya type. Integer, Enum and Boolean are writable only if the dp is
@@ -203,6 +206,10 @@ The decisions are data too (`_tuya_standard_rules.json`, applied by `tuya/standa
 switches are `switch`, not core's `outlet` plug icon; `cz` ("Socket") and `pc` ("Power strip") stay `outlet`. The golden
 tests apply the same file to core's expectations, and each such difference is a tagged `deviate` row in
 `docs/engine-spec.md` (P-28).
+
+A second one: a cover's position is not mirrored. The bridge shows the device's number and so does the IL; an
+installation inverts a device that counts the other way itself (`remap.invert`). The golden tests mirror core's
+expected position and position writes where core mirrored them (`core_reverses` in `tests/test_golden.py`).
 
 ## Tests
 

@@ -322,11 +322,10 @@ def cover(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> EntityPla
     ikey = desc["key"]
     if not (ikey in schema.function or ikey in schema.status_range):        # KeyPresent
         return None
-    pos_w = (desc.get("position_wrapper") or "$DPCodeInvertedPercentageWrapper").lstrip("$")
-    inverted = None if pos_w == "ControlBackModePercentageMappingWrapper" else True   # None => by control_back_mode
-
+    # Deliberate deviation from core: the position is the device's own number, never mirrored (core reverses it,
+    # by control_back_mode or always). A device that counts the other way gets `remap.invert` in its override.
     def reverse(st):
-        return (st.get("control_back_mode") != "back") if inverted is None else inverted
+        return False
 
     def int_role(codes, source="status_range_first"):
         return resolve(schema, DpRef(_codes(codes), (INTEGER,), source)) if codes else None
@@ -409,7 +408,7 @@ def cover(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> EntityPla
     roles = {k: v for k, v in (("instruction", ins), ("current_position", cur), ("set_position", setp),
                                ("current_state", cs), ("tilt", tilt)) if v}
     deps = tuple(dict.fromkeys(v.code for v in roles.values()))
-    return EntityPlan("cover", desc["key"], ident, roles, deps + ("control_back_mode",), read, write, update_all=True)
+    return EntityPlan("cover", desc["key"], ident, roles, deps, read, write, update_all=True)
 
 
 # --- fan ---------------------------------------------------------------------

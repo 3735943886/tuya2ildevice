@@ -64,8 +64,8 @@ class CoverMotion(Converter):
     Config (all optional):
     ``command`` (default ``control``), ``set_position`` (``percent_control``), ``position`` (``percent_state``): dp codes;
     ``words``: ``{"open": "open", "close": "close", "stop": "stop"}``, what the control dp carries;
-    ``invert``: which raw end is closed; default follows the engine's own position (reversed unless
-    ``control_back_mode`` is ``back``), so `motion` and `position` always agree;
+    ``invert``: count the position the other way (default false: the device's number, as the engine's `position`,
+    after any `remap`), so `cover_state` and `position` always agree;
     ``settle``: seconds without a position report after which motion counts as stopped (default 0 = never).
 
     A command word, or a set-position that differs from the current position, starts motion; a stop word, reaching
@@ -97,7 +97,7 @@ class CoverMotion(Converter):
     def _open_pct(self, codes: dict, raw: Any) -> float | None:
         if isinstance(raw, bool) or not isinstance(raw, (int, float)):
             return None
-        inv = self.invert if self.invert is not None else codes.get("control_back_mode") != "back"
+        inv = bool(self.invert)
         return 100 - raw if inv else float(raw)
 
     def _out(self, codes: dict, state: str | None, timers: dict | None = None) -> Result:

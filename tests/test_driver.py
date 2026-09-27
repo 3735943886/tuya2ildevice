@@ -48,12 +48,17 @@ def test_cover_position_and_triggers():
     p = d.descriptor["props"]
     assert d.descriptor["kind"] == "cover" and p["position"]["rw"] and {"open", "close", "stop"} <= set(p)
     d.handle(0, Connected())
-    # like core, position is inverted unless control_back_mode == "back": raw 30 is 70% open
+    # unlike core, the position is the device's own number (no mirroring): raw 30 is 30
     outs = d.handle(1, Message("active", {"3": 30}))
-    assert Value("position", 70) in outs
+    assert Value("position", 30) in outs
     (out,) = d.handle(2, Command("open"  , None))
-    assert out.json == {"dps": {"2": 0}}           # set_position wins over the instruction dp, reversed, as in core
-    assert d.handle(3, Command("position", 70))[0].json == {"dps": {"2": 30}}
+    assert out.json == {"dps": {"2": 100}}         # set_position wins over the instruction dp, as in core
+    assert d.handle(3, Command("position", 70))[0].json == {"dps": {"2": 70}}
+    inv = TuyaDriver(curtain(), overrides={"cur1": {"remap": {"percent_state": {"invert": True},
+                                                              "percent_control": {"invert": True}}}})
+    inv.handle(0, Connected())
+    assert Value("position", 70) in inv.handle(1, Message("active", {"3": 30}))      # the other way: asked for
+    assert inv.handle(2, Command("position", 70))[0].json == {"dps": {"2": 30}}
 
 
 def test_unavailable_when_disconnected_and_absent_on_drop():
@@ -238,9 +243,18 @@ def test_cover_motion_builtin():
 def test_cover_motion_follows_engine_position_by_default():
     d = TuyaDriver(curtain(), overrides={"cur1": {"converters": {"cover_motion": {}}}})
     d.handle(0, Connected())
-    d.handle(1, Message("state", {"3": 100}))                       # raw 100 = closed (engine reverses without control_back_mode)
-    outs = d.handle(2, Message("active", {"2": 0}))                 # raw target 0 = fully open, from closed
-    assert _motion(outs) == ["opening"]
+    assert _motion(d.handle(1, Message("state", {"3": 100}))) == ["open"]          # raw 100 = open, as the position
+    assert _motion(d.handle(2, Message("active", {"2": 0}))) == ["closing"]        # raw target 0 = closed
+
+
+def test_a_live_passive_report_that_changes_a_value_is_a_push():
+    d = TuyaDriver(curtain(), overrides={"cur1": {"converters": {"cover_motion": {}}}})
+    d.handle(0, Connected())
+    d.handle(1, Message("state", {"1": "stop", "2": 50, "3": 50}))
+    assert _motion(d.handle(2, Message("passive", {"2": 50, "3": 50}))) == []      # a readback: nothing moved
+    assert _motion(d.handle(3, Message("passive", {"2": 0, "3": 50}))) == ["closing"]
+    assert _motion(d.handle(4, Message("passive", {"3": 20}))) == []               # still moving
+    assert _motion(d.handle(5, Message("passive", {"3": 0}))) == ["closed"]
 
 
 def test_custom_python_converter_and_registration():

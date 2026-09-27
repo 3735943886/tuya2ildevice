@@ -39,6 +39,23 @@ STATE_OF = {"switch": _onoff, "binary_sensor": _onoff,
             "siren": _onoff, "valve": lambda rd: {True: "closed", False: "open", None: "unknown"}[rd["is_closed"]],
             "select": lambda rd: "unknown" if rd["current_option"] is None else rd["current_option"],
             "number": lambda rd: "unknown" if rd["native_value"] is None else str(rd["native_value"])}
+
+
+def core_reverses(code, key):
+    """Did core mirror this cover's position? The engine deliberately does not (platforms.cover): core reverses by its
+    position wrapper (always, or unless control_back_mode is back), and a quirk's invert_int_max cancels that."""
+    from tuya2ildevice.tuya.quirks import quirk_for
+    from tuya2ildevice.tuya.runtime import load_table
+    d = fixtures.load(code)
+    desc = next((x for x in load_table("cover")["COVERS"].get(d["category"], []) if x["key"] == key), {})
+    wrapper = (desc.get("position_wrapper") or "$DPCodeInvertedPercentageWrapper").lstrip("$")
+    rev = d["status"].get("control_back_mode") != "back" if wrapper == "ControlBackModePercentageMappingWrapper" else True
+    quirk = quirk_for(d["product_id"]) or {}
+    if any(op["op"] == "TypeOverride" and op.get("as") == "invert_int_max" for op in quirk.get("ops", [])):
+        rev = not rev
+    return rev
+
+
 # HA (not the engine) converts to the unit system's default display unit for these; verified by hand
 HOST_DISPLAY_UNIT = {("qxj_fsea1lat3vuktbt6", "windspeed_avg")}
 ATTRS = (("translation_key", "translation_key"), ("device_class", "device_class"), ("entity_category", "entity_category"))
@@ -94,8 +111,12 @@ def run(platform):
                         same = exp == val
                     if not same and k not in ("wind_direction",):
                         attr.append((code, k, "state", exp, val))
+            flip = platform == "cover" and core_reverses(code, k)
             if rd is not None and platform in STATE_OF:
                 exp = w["state"]
+                core_pos = (w["attributes"] or {}).get("current_position") if platform == "cover" else None
+                if flip and core_pos is not None and exp in ("open", "closed"):
+                    exp = "closed" if 100 - core_pos == 0 else "open"   # closed is position 0, the other end now
                 val = STATE_OF[platform](rd)
                 if not st.online:
                     val = "unavailable"
@@ -106,8 +127,11 @@ def run(platform):
                     attr.append((code, k, "features", w["supported_features"], g["supported_features"]))
                 a = w["attributes"] or {}
                 for ak, rk in (("current_position", "current_position"), ("current_tilt_position", "current_tilt_position")):
-                    if a.get(ak) != rd[rk] and st.online:
-                        attr.append((code, k, ak, a.get(ak), rd[rk]))
+                    want_p = a.get(ak)
+                    if flip and ak == "current_position" and want_p is not None:
+                        want_p = 100 - want_p
+                    if want_p != rd[rk] and st.online:
+                        attr.append((code, k, ak, want_p, rd[rk]))
             if platform == "humidifier":
                 a = w["attributes"] or {}
                 if int(w["supported_features"]) != g["supported_features"]:
@@ -215,9 +239,14 @@ def run_actions():
         if args.get("white") is True and plan:                # HA light service: white=True -> current brightness
             args["white"] = plan.read(schema_of(code).status)["brightness"]
         got = plan.write(act, args, schema_of(code).status) if plan else None
-        if got != c["expected_commands"]:
+        want = c["expected_commands"]
+        if plat == "cover" and plan and core_reverses(code, gold["key"]):    # the engine does not mirror (see above)
+            pos = {r.code: r.spec for n, r in plan.roles.items() if n in ("set_position", "current_position")}
+            want = [{**w, "value": pos[w["code"]].min + pos[w["code"]].max - w["value"]} if w["code"] in pos else w
+                    for w in want]
+        if got != want:
             bad += 1
-            print("   ACTION MISMATCH", c["test"], c["entity_id"], got, c["expected_commands"])
+            print("   ACTION MISMATCH", c["test"], c["entity_id"], got, want)
     print(f"actions replayed {n}  mismatched {bad}")
     return bad == 0
 

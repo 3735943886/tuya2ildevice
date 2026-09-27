@@ -211,11 +211,16 @@ class TuyaDriver:
         outs = self._describe()                     # R-2/R-3: a descriptor precedes the first value
         if not dps:
             return outs
-        active = msg.channel == "active"
         new = self.adapter.read(dps)
+        pushed = msg.channel == "active"
+        if msg.channel == "passive":
+            # a live passive report (the host drops retained ones) that changes a value is the device's own push
+            moved = [c for c in new if self._codes.get(c, _MISSING) != new[c]]
+            active, changed = (True, moved) if moved and self._synced else (False, list(new))
+        else:
+            active, changed = pushed, list(new)
         self._seq += 1
         ts = t if isinstance(t, int) else self._seq
-        changed = list(new)
         self._codes.update(new)
         first = not self._synced
         if first:
@@ -235,7 +240,7 @@ class TuyaDriver:
             if b.read is None:
                 continue
             if b.plan.slot_kind == "delta":
-                if active and deps[0] in changed:
+                if pushed and deps[0] in changed:          # an increment counts once: only a real push adds it
                     res = on_update(b.plan, b.slot, changed, {c: ts for c in changed}, self._codes)
                     if res.write_state:
                         self._set(name, b.read(self._codes, b.slot), outs)
