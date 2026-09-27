@@ -31,7 +31,10 @@ d.handle(now, Command("switch_1", "off"))    # -> [SendMessage("set", {"dps": {"
   from what is read back. A cover's position is the device's own number, never mirrored (core mirrors it); a device
   that counts the other way gets `remap.invert`.
 - A `passive` report (a live one: the host drops retained ones) that changes a value is the device's own push, like
-  `active`: converters see it as live and events fire. An increment (`report_type: sum`) is added only from `active`.
+  `active`: converters see it as live and events fire; one that changes nothing is a readback. `state`, the bridge's
+  merged view of what `active` / `passive` carried, is a snapshot: the first one after a connect sets everything, a
+  later one only what it alone brings, and never as a push. An increment (`report_type: sum`) is added only from
+  `active`.
 - Covers of class garage/gate are read only unless `TuyaDriver(..., allow_hazardous=True)` (il.md S-1).
 - A dp no platform table claims gets no property, as in Home Assistant core; `TuyaDriver(..., expose_unused=True)` gives
   each one a property chosen by its Tuya type. Integer, Enum and Boolean are writable only if the dp is

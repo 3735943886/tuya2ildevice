@@ -257,6 +257,22 @@ def test_a_live_passive_report_that_changes_a_value_is_a_push():
     assert _motion(d.handle(5, Message("passive", {"3": 0}))) == ["closed"]
 
 
+def test_the_bridges_merged_state_copy_does_not_settle_a_move():
+    """rustuya-bridge publishes each report on `passive` (or `active`) and again on `state`, its merged view: the copy
+    right behind it changes nothing, so the move goes on until the position arrives (a trace from a real curtain)."""
+    d = TuyaDriver(curtain(), overrides={"cur1": {"converters": {"cover_motion": {}}}})
+    d.handle(0, Connected())
+    d.handle(1, Message("state", {"1": "close", "2": 10, "3": 10}))
+    got = [_motion(d.handle(i + 2, Message(ch, m))) for i, (ch, m) in enumerate([
+        ("passive", {"2": 0}), ("state", {"2": 0}), ("passive", {"3": 5}), ("state", {"3": 5}),
+        ("passive", {"3": 0}), ("state", {"3": 0})])]
+    assert got == [["closing"], [], [], [], ["closed"], []]
+    assert _motion(d.handle(9, Message("state", {"2": 60, "3": 60}))) == ["stopped"]     # news only state brought
+    d.handle(10, Disconnected())
+    d.handle(11, Connected())
+    assert _motion(d.handle(12, Message("state", {"1": "close", "2": 60, "3": 60}))) == ["stopped"]  # a fresh snapshot
+
+
 def test_custom_python_converter_and_registration():
     class Counter(Converter):
         def props(self):

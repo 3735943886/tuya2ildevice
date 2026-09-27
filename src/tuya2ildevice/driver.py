@@ -213,12 +213,17 @@ class TuyaDriver:
             return outs
         new = self.adapter.read(dps)
         pushed = msg.channel == "active"
-        if msg.channel == "passive":
-            # a live passive report (the host drops retained ones) that changes a value is the device's own push
-            moved = [c for c in new if self._codes.get(c, _MISSING) != new[c]]
-            active, changed = (True, moved) if moved and self._synced else (False, list(new))
+        moved = [c for c in new if self._codes.get(c, _MISSING) != new[c]]
+        if pushed or not self._synced:
+            active, changed = pushed, list(new)     # a push, or the first snapshot: every dp in it
+        elif msg.channel == "passive":
+            # a live passive report (the host drops retained ones) that changes a value is the device's own push; one
+            # that changes nothing is a readback
+            active, changed = bool(moved), moved
         else:
-            active, changed = pushed, list(new)
+            # `state` is the bridge's merged view of what active / passive already carried: only a value it alone
+            # brings (a report that was missed) is news, and it is not a push
+            active, changed = False, moved
         self._seq += 1
         ts = t if isinstance(t, int) else self._seq
         self._codes.update(new)
