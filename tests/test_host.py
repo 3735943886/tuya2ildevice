@@ -105,6 +105,18 @@ async def test_sync_adds_changes_and_removes_and_clears_before_removing(running)
     assert runner.sync_devices([lamp("lamp1"), bad])["failed"] == ["_reserved"]
 
 
+async def test_a_device_an_override_refused_is_driven_once_the_overrides_are_fixed(running):
+    il, runner, hub, _ = running
+    runner.reload({"late": {"bogus": True}})                          # no such device yet: nothing to refuse
+    assert runner.sync_devices([lamp("lamp1"), lamp("late")])["failed"] == ["late"]
+    runner.reload({"late": {"also_bogus": True}})                     # still refused
+    await runner.drain()
+    assert "late" not in hub.records and "il/late" not in il.retained
+    runner.reload({"late": {"device": {"label": "Late"}}})            # fixed: driven now, without a device-list change
+    await runner.drain()
+    assert "late" in hub.records and json.loads(il.retained["il/late"].payload)["label"] == "Late"
+
+
 # ---- the device file --------------------------------------------------------------------------------------------------
 def test_a_list_or_a_dict_of_records_and_the_ones_that_cannot_be_driven():
     records = [lamp("a"), {"id": "nocat", "name": "x"}, {"name": "noid"}, "junk"]

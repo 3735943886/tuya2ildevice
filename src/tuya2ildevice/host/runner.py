@@ -68,6 +68,7 @@ class Runner:
         self._out: asyncio.Queue = asyncio.Queue()
         self._worker: asyncio.Task | None = None
         self._presence_unsub: Unsubscribe | None = None
+        self._failed: dict[str, dict] = {}         # records sync_devices could not drive, tried again on reload
 
     async def start(self) -> None:
         """Subscribe on the IL side, publish presence and every descriptor (retained)."""
@@ -115,10 +116,12 @@ class Runner:
 
     def sync_devices(self, records: list[dict]) -> dict[str, list[str]]:
         """Make the driven devices exactly `records`: add the new, replace the changed, remove the gone. A record the
-        Hub cannot drive is reported and skipped, the others go on. Returns what was done, by kind."""
+        Hub cannot drive is reported and skipped, the others go on; `reload` tries it again (an override that
+        refused it may have been fixed). Returns what was done, by kind."""
         wanted = {r["id"]: r for r in records}
         have = self.hub.records
         done: dict[str, list[str]] = {"added": [], "changed": [], "removed": [], "failed": []}
+        self._failed = {}
         for device_id in have.keys() - wanted.keys():
             self.remove_device(device_id)
             done["removed"].append(device_id)
@@ -130,6 +133,7 @@ class Runner:
             except Exception:
                 _LOGGER.exception("cannot drive device %s", device_id)
                 done["failed"].append(device_id)
+                self._failed[device_id] = record
                 continue
             done["changed" if device_id in have else "added"].append(device_id)
         return done
@@ -137,6 +141,15 @@ class Runner:
     def reload(self, overrides: dict | None, converters: dict | None = None,
                converter_types: dict | None = None) -> None:
         self.run(self.hub.reload(overrides, converters, converter_types))
+        failed, self._failed = self._failed, {}
+        for device_id, record in failed.items():
+            try:
+                self.set_device(record)
+            except Exception as e:
+                _LOGGER.warning("still cannot drive device %s: %s", device_id, e)
+                self._failed[device_id] = record
+            else:
+                _LOGGER.info("device %s is driven now", device_id)
 
     # ---- plumbing ----------------------------------------------------------------------
 
