@@ -13,6 +13,7 @@ method takes what was received and returns `Publish`/`BridgeCommand`/`Schedule`/
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -151,10 +152,13 @@ class Hub:
         if not i or i[0] == "_" or any(c in i for c in "/+#\0"):
             raise ValueError(f"device id {i!r} is not usable as an il-mqtt topic level (M-2)")
 
-    def set_device(self, device: dict) -> list:
+    def set_device(self, device: dict, seed: Sequence[Connected | Disconnected | Message] = (), now: float = 0) -> list:
         """Add a device, or replace the record of one that is known (a new schema, a new local key): the descriptor
-        is published (properties it no longer has are cleared first, M-11) and, if the bridge link was up, the state is
-        asked for again. Raises before changing anything if the record cannot be driven."""
+        is published (properties it no longer has are cleared first, M-11) and, if the bridge link is up, the state is
+        asked for again. `seed`: what the host already knows of the device (its retained link state, then its retained
+        `state` snapshot), applied before anything is published, so a host that restarts republishes what il consumers
+        already have (no `available: false` in between). Raises before changing anything if the record cannot be
+        driven."""
         i = device["id"]
         self._check_id(i)
         new = TuyaDriver(device, **self._kw)
@@ -164,9 +168,10 @@ class Hub:
             pubs += [Unschedule(i, n) for n in sorted(old.timers)]
             for prop in old.descriptor["props"].keys() - new.descriptor["props"].keys():
                 pubs.append(Publish(IL, self.il.state(i, prop), "", True, 1))
-        pubs += self._il_pubs(i, new.describe())
-        if old is not None and old.linked:
-            new.handle(0, Connected())
+        if not seed and old is not None and old.linked:
+            seed = [Connected()]
+        pubs += self._il_pubs(i, new.describe(seed, now))
+        if any(isinstance(inp, Connected) for inp in seed):         # a connected link: ask for a fresh state too
             pubs.append(BridgeCommand(i, "get"))
         self._devices[i] = device
         self.drivers[i] = new

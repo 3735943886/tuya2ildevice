@@ -9,7 +9,7 @@ import asyncio
 import logging
 import secrets
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
 from ..io import Connected, Disconnected
 from ..io import Message as DriverInput
@@ -84,14 +84,16 @@ class Runner:
             hooks.append(self._reconnected)
         self.run(self.hub.start())
 
-    async def stop(self) -> None:
-        """Presence goes offline, the queue drains, then subscriptions and timers are released."""
+    async def stop(self, offline: bool = True) -> None:
+        """Presence goes offline, the queue drains, then subscriptions and timers are released. `offline=False` leaves
+        the presence `online` for a host that starts again at once (a restart): il consumers then see no gap."""
         if self._worker is None:                   # not started, or already stopped
             return
         if self._presence_unsub is not None:       # first: this one's own `offline` is not to be answered
             self._presence_unsub()
             self._presence_unsub = None
-        self.run(self.hub.stop())
+        if offline:
+            self.run(self.hub.stop())
         await self.drain()
         for unsub in self._unsubs:
             unsub()
@@ -108,16 +110,17 @@ class Runner:
 
     # ---- runtime device changes (each returns nothing; the Hub's outputs are executed) --------------
 
-    def set_device(self, device: dict) -> None:
-        self.run(self.hub.set_device(device))
+    def set_device(self, device: dict, seed: Sequence[Connected | Disconnected | DriverInput] = ()) -> None:
+        self.run(self.hub.set_device(device, seed, self.clock()))
 
     def remove_device(self, device_id: str) -> None:
         self.run(self.hub.remove_device(device_id))
 
-    def sync_devices(self, records: list[dict]) -> dict[str, list[str]]:
+    def sync_devices(self, records: list[dict], seed: Callable[[str], Sequence] | None = None) -> dict[str, list[str]]:
         """Make the driven devices exactly `records`: add the new, replace the changed, remove the gone. A record the
         Hub cannot drive is reported and skipped, the others go on; `reload` tries it again (an override that
-        refused it may have been fixed). Returns what was done, by kind."""
+        refused it may have been fixed). `seed(device_id)`: what the host already knows of a device it adds or
+        replaces (see `Hub.set_device`). Returns what was done, by kind."""
         wanted = {r["id"]: r for r in records}
         have = self.hub.records
         done: dict[str, list[str]] = {"added": [], "changed": [], "removed": [], "failed": []}
@@ -129,7 +132,7 @@ class Runner:
             if have.get(device_id) == record:
                 continue
             try:
-                self.set_device(record)
+                self.set_device(record, seed(device_id) if seed is not None else ())
             except Exception:
                 _LOGGER.exception("cannot drive device %s", device_id)
                 done["failed"].append(device_id)

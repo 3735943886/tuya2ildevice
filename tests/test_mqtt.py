@@ -101,6 +101,28 @@ def test_timers_surface_as_schedule_and_on_timer():
     assert Unschedule("cur1", "c0:settle") in hub.on_bridge_message(5, "cur1", Disconnected())
 
 
+def test_a_seeded_device_goes_out_up_with_its_values_and_never_false():
+    """A host restarting knows each device's link and retained state: seeded, the device is published as it already
+    was (descriptor, `available: true`, its values), with no `available: false` for an il consumer to flap on."""
+    hub = Hub([])
+    out = hub.set_device(light(), [Connected(), Message("state", {"20": True, "22": 1000, "23": 0})])
+    order = [p.topic for p in out if isinstance(p, Publish)]
+    assert order[0] == "il/lamp1"                                          # R-2: the descriptor first
+    pubs = topics(out)
+    assert pubs["il/lamp1/available"].payload == "true" and pubs["il/lamp1/brightness"].payload == "100"
+    assert [p for p in out if isinstance(p, Publish) and p.topic == "il/lamp1/available"] == [pubs["il/lamp1/available"]]
+    assert BridgeCommand("lamp1", "get") in out                            # still asked for a fresh state
+
+    linked_only = Hub([]).set_device(light(), [Connected()])               # no snapshot yet: A-2 says not available
+    assert topics(linked_only)["il/lamp1/available"].payload == "false" and BridgeCommand("lamp1", "get") in linked_only
+    down = Hub([]).set_device(light(), [Disconnected()])
+    assert topics(down)["il/lamp1/available"].payload == "false" and BridgeCommand("lamp1", "get") not in down
+    assert next(p.topic for p in down if isinstance(p, Publish)) == "il/lamp1"
+    # a sub-device has no link state of its own, only its retained snapshot: up with its values, and no `get`
+    sub = Hub([]).set_device(light(), [Message("state", {"20": False, "22": 10, "23": 0})])
+    assert topics(sub)["il/lamp1/available"].payload == "true" and not any(isinstance(p, BridgeCommand) for p in sub)
+
+
 def test_set_device_adds_replaces_and_remove_clears_first():
     hub = Hub([light()])
     hub.start()

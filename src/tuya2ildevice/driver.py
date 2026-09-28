@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+from collections.abc import Sequence
 from typing import Any
 
 from . import overrides as ov
@@ -170,10 +171,15 @@ class TuyaDriver:
     def linked(self) -> bool:
         return self._linked
 
-    def describe(self) -> list:
-        """The descriptor and `available: false`, for a host that publishes them before the device link is up."""
+    def describe(self, seed: Sequence[Any] = (), now: float = 0) -> list:
+        """The descriptor, then what `seed` makes of the device: inputs the host already has for it (its link's state,
+        a retained `state` snapshot), so a device already up goes out `available: true` with its values rather than
+        `false` first (a host restarting shows no flap). `available: false` unless the seed brought a first state (A-2)."""
         outs = self._describe()
-        self._set("available", False, outs)
+        for inp in seed:
+            outs += self.handle(now, inp)
+        if not self._synced:
+            self._set("available", False, outs)
         return outs
 
     def _describe(self) -> list:

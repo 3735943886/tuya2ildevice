@@ -88,6 +88,13 @@ async def test_stop_is_idempotent_and_publishes_offline(running):
     assert il.published[-1][:2] == ("il/_producer/tuya", "offline")
 
 
+async def test_a_restart_can_leave_the_presence_online(running):
+    il, runner, _, _ = running
+    await runner.stop(offline=False)
+    assert il.retained["il/_producer/tuya"].payload == "online"
+    assert not [p for p in il.published if p[0] == "il/_producer/tuya" and p[1] == "offline"]
+
+
 async def test_sync_adds_changes_and_removes_and_clears_before_removing(running):
     il, runner, hub, _ = running
     runner.set_device(lamp("gone"))

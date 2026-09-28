@@ -166,7 +166,11 @@ the in-process `InProcessTransport`), keeps the Last Will presence (M-12), recon
 running (`set_device`, `remove_device`, `sync_devices`), follows rustuya-manager's `tuyadevices.json`
 (`DeviceWatcher`), and routes every `BridgeCommand` Hub produces through an injected `on_bridge_command` callback —
 supplied by whatever owns the real bridge connection — plus a matching `runner.on_bridge_message(device_id, inp,
-retained=False)` entry point for feeding decoded bridge input back in.
+retained=False)` entry point for feeding decoded bridge input back in. A host that already heard a device before it
+drives it (a restart: the bridge's retained link state and `state`) hands that over as `seed` (`set_device(device,
+seed)`, `sync_devices(records, seed=...)`), so the device goes out as it was — `available: true` with its values, never
+`false` in between — and `stop(offline=False)` keeps the presence `online` for a host that starts again at once: IL
+consumers see no gap.
 
 One producer per IL prefix and source: `await producer_running(il, hub.il.presence)` before starting says whether
 another one is serving it. It returns `True` when a running `Runner` answers a probe on `<presence>/probe` (the answer
