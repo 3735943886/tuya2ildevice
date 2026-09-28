@@ -171,6 +171,11 @@ class TuyaDriver:
     def linked(self) -> bool:
         return self._linked
 
+    @property
+    def synced(self) -> bool:
+        """A first state has arrived (and no disconnect since)."""
+        return self._synced
+
     def describe(self, seed: Sequence[Any] = (), now: float = 0) -> list:
         """The descriptor, then what `seed` makes of the device: inputs the host already has for it (its link's state,
         a retained `state` snapshot), so a device already up goes out `available: true` with its values rather than

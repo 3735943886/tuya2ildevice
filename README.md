@@ -181,7 +181,7 @@ stale presence whose Last Will never reached the broker, or a producer on tuya2i
 | direction | shape |
 |---|---|
 | bridge -> hub | `runner.on_bridge_message(device_id, Connected() / Disconnected() / Message(channel, {dp: value}))` |
-| hub -> bridge | `BridgeCommand(device_id, "set"/"get", dps)` via `on_bridge_command` (a `get` after each connect) |
+| hub -> bridge | `BridgeCommand(device_id, "set"/"get", dps)` via `on_bridge_command` (a `get` after a live connect, or for a device with no state yet; none when its retained snapshot is there) |
 | hub -> IL host | il-mqtt.md: retained `il/<id>` and `il/<id>/<prop>`; events and `il/<id>/reject` not retained; `il/_producer/tuya` presence |
 | IL host -> hub | `il/<id>/<prop>/set` (retained writes ignored) |
 

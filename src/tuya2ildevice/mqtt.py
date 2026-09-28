@@ -154,10 +154,11 @@ class Hub:
 
     def set_device(self, device: dict, seed: Sequence[Connected | Disconnected | Message] = (), now: float = 0) -> list:
         """Add a device, or replace the record of one that is known (a new schema, a new local key): the descriptor
-        is published (properties it no longer has are cleared first, M-11) and, if the bridge link is up, the state is
-        asked for again. `seed`: what the host already knows of the device (its retained link state, then its retained
-        `state` snapshot), applied before anything is published, so a host that restarts republishes what il consumers
-        already have (no `available: false` in between). Raises before changing anything if the record cannot be
+        is published (properties it no longer has are cleared first, M-11) and, if the bridge link is up with no state
+        to go on, the state is asked for (`get`). `seed`: what the host already knows of the device (its retained link
+        state, then its retained `state` snapshot), applied before anything is published, so a host that restarts
+        republishes what il consumers already have (no `available: false` in between) and asks for nothing: the
+        bridge's snapshot is its merged, current copy. Raises before changing anything if the record cannot be
         driven."""
         i = device["id"]
         self._check_id(i)
@@ -171,8 +172,9 @@ class Hub:
         if not seed and old is not None and old.linked:
             seed = [Connected()]
         pubs += self._il_pubs(i, new.describe(seed, now))
-        if any(isinstance(inp, Connected) for inp in seed):         # a connected link: ask for a fresh state too
-            pubs.append(BridgeCommand(i, "get"))
+        linked = any(isinstance(inp, Connected) for inp in seed)
+        if linked and not any(isinstance(inp, Message) and inp.channel == "state" for inp in seed):
+            pubs.append(BridgeCommand(i, "get"))                    # a connected link and no snapshot: ask for one
         self._devices[i] = device
         self.drivers[i] = new
         return pubs
@@ -237,15 +239,17 @@ class Hub:
                            retained: bool = False) -> list:
         """`inp` is already decoded (see `io.py`) — the host (not Hub) owns turning a raw bridge MQTT message into
         one of these, since rustuya-bridge's topics/payload template are configurable and interpreting them
-        correctly needs `pyrustuyabridge`, not a hand-rolled parser."""
+        correctly needs `pyrustuyabridge`, not a hand-rolled parser. A live `Connected` is a (re)connect and asks for
+        the state (`get`); a retained one is old news and asks only when no state has arrived yet (the bridge keeps
+        no snapshot of a device nobody asked)."""
         d = self.drivers.get(device_id)
         if d is None:
             return []
         if isinstance(inp, Message) and inp.channel != "state" and retained:
             return []                                             # a replayed delta is not a new event (M-9)
         pubs = self._il_pubs(device_id, d.handle(now, inp))
-        if isinstance(inp, Connected):
-            pubs.append(BridgeCommand(device_id, "get"))          # ask for the full state right after connecting
+        if isinstance(inp, Connected) and not (retained and d.synced):
+            pubs.append(BridgeCommand(device_id, "get"))
         return pubs
 
     def on_timer(self, now: float, device_id: str, name: str) -> list:

@@ -20,6 +20,8 @@ def test_bridge_to_il_and_back():
     # bridge says connected -> a `get` goes back to the bridge
     out = hub.on_bridge_message(0, "lamp1", Connected())
     assert BridgeCommand("lamp1", "get") in out
+    # a retained link state with no state yet asks too: the bridge keeps no snapshot of a device nobody asked
+    assert BridgeCommand("lamp1", "get") in hub.on_bridge_message(0, "lamp1", Connected(), retained=True)
 
     # retained full snapshot, then a live delta
     out = topics(hub.on_bridge_message(1, "lamp1", Message("state", {"20": True, "22": 1000, "23": 0}), retained=True))
@@ -28,6 +30,9 @@ def test_bridge_to_il_and_back():
     out = hub.on_bridge_message(2, "lamp1", Message("active", {"22": 505}))
     assert out == [Publish("il", "il/lamp1/brightness", "50", True, 1)]
     assert hub.on_bridge_message(3, "lamp1", Message("active", {"22": 100}), retained=True) == []   # replayed delta
+    # with its state in hand, a retained link state (a resubscribe) asks for nothing; a live one (a reconnect) does
+    assert BridgeCommand("lamp1", "get") not in hub.on_bridge_message(3, "lamp1", Connected(), retained=True)
+    assert BridgeCommand("lamp1", "get") in hub.on_bridge_message(3, "lamp1", Connected())
 
     # il-ha writes a value -> a `set` for the bridge; a bad one -> a reject for il-ha
     (cmd,) = hub.on_il(4, "il/lamp1/brightness/set", "50")
@@ -111,7 +116,7 @@ def test_a_seeded_device_goes_out_up_with_its_values_and_never_false():
     pubs = topics(out)
     assert pubs["il/lamp1/available"].payload == "true" and pubs["il/lamp1/brightness"].payload == "100"
     assert [p for p in out if isinstance(p, Publish) and p.topic == "il/lamp1/available"] == [pubs["il/lamp1/available"]]
-    assert BridgeCommand("lamp1", "get") in out                            # still asked for a fresh state
+    assert BridgeCommand("lamp1", "get") not in out                        # the bridge's snapshot is current
 
     linked_only = Hub([]).set_device(light(), [Connected()])               # no snapshot yet: A-2 says not available
     assert topics(linked_only)["il/lamp1/available"].payload == "false" and BridgeCommand("lamp1", "get") in linked_only
