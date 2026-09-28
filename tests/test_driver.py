@@ -366,8 +366,8 @@ def test_after_preload_driving_a_device_reads_no_file(monkeypatch):
     from tuya2ildevice.tuya import quirks, runtime
 
     records = [fixtures.load(code) for code in fixtures.all_codes()]      # the fixtures themselves are files
-    monkeypatch.setattr(quirks, "_QUIRKS", None)
-    monkeypatch.setattr(runtime, "_TABLE_CACHE", {})
+    quirks.load_quirks.cache_clear()
+    runtime.load_table.cache_clear()
     tuya2ildevice.preload()
 
     def no_io(*args, **kwargs):

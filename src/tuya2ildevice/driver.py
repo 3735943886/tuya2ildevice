@@ -10,8 +10,6 @@ It reads no clock and does no I/O; the host feeds it already-decoded dp:value ma
 """
 from __future__ import annotations
 
-import json
-import pathlib
 from collections.abc import Sequence
 from typing import Any
 
@@ -35,7 +33,10 @@ from .io import (
     Timer,
     Value,
 )
-from .tuya import platforms  # noqa: F401  (registers the platform builders)
+from .tuya import (
+    load_json,
+    platforms,  # noqa: F401  (registers the platform builders)
+)
 from .tuya.adapter import Adapter, NoWritePath
 from .tuya.model import DeviceSchema, DpSpec, SchemaError
 from .tuya.quirks import apply_quirk, apply_status_quirk, device_info, quirk_for
@@ -48,11 +49,13 @@ from .tuya.runtime import (
     on_update,
 )
 
-_HOST_UNITS = json.loads((pathlib.Path(__file__).parent / "tuya" / "data" / "host_units.json").read_text())
+_HOST_UNITS = load_json("data", "host_units.json")
+_MISSING = object()
+_TIMER = "c{}:{}"                                    # a converter's timer, as the host sees it: by converter index
 
 
 def default_env() -> HostEnv:
-    """Home Assistant's per-device-class allowed units, which the v2 unit policy needs (spec 5.3)."""
+    """Home Assistant's per-device-class allowed units, which the unit policy needs (spec 5.3)."""
     return HostEnv(allowed_units=_HOST_UNITS)
 
 
@@ -100,32 +103,23 @@ class TuyaDriver:
             schema.status = apply_status_quirk(quirk, schema.status)
         types = {**BUILTIN, **(converter_types or {})}
         block = ov.find(overrides, device, types)
-        dpcodes = {**{str(k): v for k, v in schema.dpmap.items()}, **{str(k): v for k, v in (dpmap or {}).items()},
-                   **Adapter.from_local_strategy(device.get("local_strategy") or {}).codes()}
+        local_strategy = device.get("local_strategy") or {}
+        extra = {str(k): v for k, v in (dpmap or {}).items()}
+        dpcodes = {**_str_keys(schema.dpmap), **extra, **Adapter.from_local_strategy(local_strategy).codes()}
         schema, removed = ov.patch_schema(schema, block, dpcodes)
-        self.adapter = Adapter.from_local_strategy(device.get("local_strategy") or {}, schema.status_range)
-        for dpid, code in {**{str(k): v for k, v in schema.dpmap.items()}, **(dpmap or {})}.items():
-            self.adapter.entries.setdefault(str(dpid), (code, "default", {}))
+        self.adapter = Adapter.from_local_strategy(local_strategy, schema.status_range)
+        for dpid, code in {**_str_keys(schema.dpmap), **extra}.items():
+            self.adapter.entries.setdefault(dpid, (code, "default", {}))
         ov.patch_adapter(self.adapter, block, removed, schema)
-        plans = classify(schema, env or default_env()).entities if block.get("auto", True) else []
-        if block.get("auto", True) and block.get("expose_unused", expose_unused):
-            used = {c for p in plans if p.platform not in UNSUPPORTED for c in p.depends_on}
-            plans = plans + unused_plans(schema, self.adapter.entries, used)
+        plans: list[EntityPlan] = []
+        if block.get("auto", True):
+            plans = classify(schema, env or default_env()).entities
+            if block.get("expose_unused", expose_unused):
+                used = {c for p in plans if p.platform not in UNSUPPORTED for c in p.depends_on}
+                plans += unused_plans(schema, self.adapter.entries, used)
         self.assembly: Assembly = assemble(schema, plans, device_info(schema, quirk), allow_hazardous=allow_hazardous)
         self.converters: list[Converter] = self._make_converters(device, block, converters, types)
-        owner: dict[str, int] = {}
-        for idx, conv in enumerate(self.converters):
-            for name, definition in conv.props().items():
-                if name == "available" or name in owner:
-                    raise ov.OverrideError(f"converter property {name!r}: taken by {'the driver' if name == 'available' else 'another converter'}")
-                owner[name] = idx
-                self.assembly.descriptor["props"][name] = dict(definition)
-                writes = definition.get("rw") or definition.get("type") == "trigger"
-                if writes and type(conv).write is Converter.write:
-                    raise ov.OverrideError(f"converter property {name!r}: writable, but the converter has no write()")
-                self.assembly.bindings[name] = Binding(
-                    name, EntityPlan("converter", name, {}, {}, ()),
-                    write=(lambda v, codes, c=conv, n=name: _commands(c.write(n, v, codes))) if writes else None)
+        self._bind_converters()
         ov.patch_descriptor(self.assembly, block, schema)
         self.descriptor: dict = self.assembly.descriptor
         self.unsupported: list[str] = self.assembly.unsupported
@@ -139,17 +133,18 @@ class TuyaDriver:
 
     # -- the driver interface -------------------------------------------------
     def handle(self, now: float, inp: Any) -> list:
-        if isinstance(inp, Connected):
-            self._linked = True
-            return self._describe()
-        if isinstance(inp, Disconnected):
-            return self._disconnect()
-        if isinstance(inp, Message):
-            return self._message(now, inp)
-        if isinstance(inp, Command):
-            return self._command(inp)
-        if isinstance(inp, Timer):
-            return self._timer(now, inp.name)
+        match inp:
+            case Connected():
+                self._linked = True
+                return self._describe()
+            case Disconnected():
+                return self._disconnect()
+            case Message():
+                return self._message(now, inp)
+            case Command():
+                return self._command(inp)
+            case Timer(name):
+                return self._timer(now, name)
         return []
 
     # -- internals ------------------------------------------------------------
@@ -158,14 +153,30 @@ class TuyaDriver:
         out: list[Converter] = []
         for key in (device.get("product_id"), device.get("id")):
             fs = (registered or {}).get(key) if key else None
-            for f in (fs if isinstance(fs, (list, tuple)) else [fs] if fs else []):
-                out.append(f(device))
+            out += [f(device) for f in (fs if isinstance(fs, (list, tuple)) else [fs] if fs else [])]
         for name, cfg in (block.get("converters") or {}).items():
             try:
                 out.append(types[name](cfg))
             except ValueError as e:
                 raise ov.OverrideError(str(e)) from e
         return out
+
+    def _bind_converters(self) -> None:
+        """Add the converters' properties to the descriptor, a writable one bound to its converter's `write`."""
+        taken: set[str] = set()
+        for conv in self.converters:
+            for name, definition in conv.props().items():
+                if name == "available" or name in taken:
+                    by = "the driver" if name == "available" else "another converter"
+                    raise ov.OverrideError(f"converter property {name!r}: taken by {by}")
+                taken.add(name)
+                self.assembly.descriptor["props"][name] = dict(definition)
+                writes = definition.get("rw") or definition.get("type") == "trigger"
+                if writes and type(conv).write is Converter.write:
+                    raise ov.OverrideError(f"converter property {name!r}: writable, but the converter has no write()")
+                self.assembly.bindings[name] = Binding(
+                    name, EntityPlan("converter", name, {}, {}, ()),
+                    write=(lambda v, codes, c=conv, n=name: _commands(c.write(n, v, codes))) if writes else None)
 
     @property
     def linked(self) -> bool:
@@ -196,10 +207,7 @@ class TuyaDriver:
     def _disconnect(self) -> list:
         self._linked = self._synced = False
         self._codes.clear()
-        outs: list = []
-        for prop in list(self._values):
-            if prop != "available":
-                outs.append(Absent(prop))
+        outs: list = [Absent(prop) for prop in self._values if prop != "available"]
         outs.append(Value("available", False))
         self._values = {"available": False}
         for conv in self.converters:
@@ -245,12 +253,13 @@ class TuyaDriver:
             self._set("available", True, outs)      # A-2: true once the first state has arrived
         for idx, conv in enumerate(self.converters):
             self._converted(idx, conv.update(now, self._codes, changed, active), outs)
+        stamps = dict.fromkeys(changed, ts)
         for name, b in self.assembly.bindings.items():
             deps = b.plan.depends_on
             if b.event:
                 if pushed and deps[0] in changed:           # an event fires only from `active` (a passive replay of a
                                                             # click is the device's cached value, not a new press)
-                    ev = on_update(b.plan, b.slot, changed, {c: ts for c in changed}, self._codes)
+                    ev = on_update(b.plan, b.slot, changed, stamps, self._codes)
                     if ev.fire and ev.fire[0] in self.descriptor["props"][name]["options"]:
                         outs.append(Event(name, ev.fire[0]))
                 continue
@@ -258,7 +267,7 @@ class TuyaDriver:
                 continue
             if b.plan.slot_kind == "delta":
                 if pushed and deps[0] in changed:          # an increment counts once: only a real push adds it
-                    res = on_update(b.plan, b.slot, changed, {c: ts for c in changed}, self._codes)
+                    res = on_update(b.plan, b.slot, changed, stamps, self._codes)
                     if res.write_state:
                         self._set(name, b.read(self._codes, b.slot), outs)
                 elif first:
@@ -275,7 +284,7 @@ class TuyaDriver:
             if b is not None and b.plan.platform == "converter":    # an override may have hidden or redefined it
                 self._set(prop, value, outs)
         for name, after in r.timers.items():
-            full = f"c{idx}:{name}"
+            full = _TIMER.format(idx, name)
             if after is None:
                 if full in self.timers:
                     self.timers.discard(full)
@@ -287,9 +296,10 @@ class TuyaDriver:
     def _timer(self, now: float, name: str) -> list:
         outs: list = []
         head, _, short = name.partition(":")
-        if head[:1] == "c" and head[1:].isdigit() and int(head[1:]) < len(self.converters):
+        idx = int(head[1:]) if head[:1] == "c" and head[1:].isdigit() else len(self.converters)
+        if idx < len(self.converters):
             self.timers.discard(name)
-            self._converted(int(head[1:]), self.converters[int(head[1:])].timer(now, short, self._codes), outs)
+            self._converted(idx, self.converters[idx].timer(now, short, self._codes), outs)
         return outs
 
     def _command(self, cmd: Command) -> list:
@@ -321,4 +331,5 @@ def _commands(out: Any) -> list[dict]:
     return list(out or [])
 
 
-_MISSING = object()
+def _str_keys(m: dict) -> dict[str, Any]:
+    return {str(k): v for k, v in m.items()}

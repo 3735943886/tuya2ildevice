@@ -126,8 +126,13 @@ def decode_write(ptype: str, payload: str) -> Any:
         try:
             return json.loads(payload)
         except ValueError:
-            return payload
+            pass
     return payload
+
+
+def _retained(topic: str, payload: str = "") -> Publish:
+    """A retained il publish; an empty payload clears the topic."""
+    return Publish(IL, topic, payload, True, 1)
 
 
 # --- the hub ---------------------------------------------------------------------------------------
@@ -164,18 +169,24 @@ class Hub:
         self._check_id(i)
         new = TuyaDriver(device, **self._kw)
         old = self.drivers.get(i)
-        pubs: list = []
-        if old is not None:
-            pubs += [Unschedule(i, n) for n in sorted(old.timers)]
-            for prop in old.descriptor["props"].keys() - new.descriptor["props"].keys():
-                pubs.append(Publish(IL, self.il.state(i, prop), "", True, 1))
         if not seed and old is not None and old.linked:
             seed = [Connected()]
-        pubs += self._il_pubs(i, new.describe(seed, now))
+        pubs = self._replace(i, old, new, seed, now)
         linked = any(isinstance(inp, Connected) for inp in seed)
         if linked and not any(isinstance(inp, Message) and inp.channel == "state" for inp in seed):
             pubs.append(BridgeCommand(i, "get"))                    # a connected link and no snapshot: ask for one
         self._devices[i] = device
+        return pubs
+
+    def _replace(self, i: str, old: TuyaDriver | None, new: TuyaDriver, seed: Sequence = (), now: float = 0) -> list:
+        """Drive device `i` with `new` from now on: `old`'s timers are cancelled and the properties it had that `new`
+        has not are cleared (M-11), then `new` is described (with `seed`, see `TuyaDriver.describe`)."""
+        pubs: list = []
+        if old is not None:
+            pubs += [Unschedule(i, n) for n in sorted(old.timers)]
+            pubs += [_retained(self.il.state(i, prop))
+                     for prop in old.descriptor["props"].keys() - new.descriptor["props"].keys()]
+        pubs += self._il_pubs(i, new.describe(seed, now))
         self.drivers[i] = new
         return pubs
 
@@ -186,8 +197,8 @@ class Hub:
         if old is None:
             return []
         pubs: list = [Unschedule(device_id, n) for n in sorted(old.timers)]
-        pubs += [Publish(IL, self.il.state(device_id, prop), "", True, 1) for prop in old.descriptor["props"]]
-        pubs.append(Publish(IL, self.il.descriptor(device_id), "", True, 1))
+        pubs += [_retained(self.il.state(device_id, prop)) for prop in old.descriptor["props"]]
+        pubs.append(_retained(self.il.descriptor(device_id)))
         return pubs
 
     def reload(self, overrides: dict | None, converters: dict | None = None,
@@ -197,24 +208,17 @@ class Hub:
         fresh driver: its removed properties are cleared (M-11), the new descriptor is published, and the bridge is
         asked for its state again. Raises `OverrideError` (changing nothing) if the overrides are invalid."""
         kw = {**self._kw, "overrides": overrides}
-        if converters is not None:
-            kw["converters"] = converters
-        if converter_types is not None:
-            kw["converter_types"] = converter_types
+        kw.update({k: v for k, v in (("converters", converters), ("converter_types", converter_types)) if v is not None})
         fresh = {i: TuyaDriver(d, **kw) for i, d in self._devices.items()}          # all or nothing
         pubs: list = []
         for i, new in fresh.items():
             old = self.drivers[i]
             if new.descriptor == old.descriptor and not (old.timers or new.converters):
                 continue
-            pubs += [Unschedule(i, n) for n in sorted(old.timers)]
-            for prop in old.descriptor["props"].keys() - new.descriptor["props"].keys():
-                pubs.append(Publish(IL, self.il.state(i, prop), "", True, 1))
-            pubs += self._il_pubs(i, new.describe())
+            pubs += self._replace(i, old, new)
             if old.linked:
                 new.handle(0, Connected())
                 pubs.append(BridgeCommand(i, "get"))
-            self.drivers[i] = new
         self._kw = kw
         return pubs
 
@@ -223,7 +227,7 @@ class Hub:
 
     def presence(self, online: bool) -> Publish:
         """M-12. Register `presence(False)` as the Last Will on the il connection."""
-        return Publish(IL, self.il.presence, "online" if online else "offline", True, 1)
+        return _retained(self.il.presence, "online" if online else "offline")
 
     def start(self) -> list[Publish]:
         """Presence, then every device's descriptor and `available: false` (retained), so il-ha sees them at once."""
@@ -270,24 +274,26 @@ class Hub:
         return self._il_pubs(i, d.handle(now, Command(prop, decode_write(ptype, payload))))
 
     def _il_pubs(self, id: str, outs: list) -> list:
-        pubs: list = []
-        for o in outs:
-            if isinstance(o, Descriptor):
-                desc = {**o.desc, "source": self.il.source}          # M-12: the presence topic's `<source>`
-                pubs.append(Publish(IL, self.il.descriptor(id), json.dumps(desc, ensure_ascii=False), True, 1))
-            elif isinstance(o, Value):
-                pubs.append(Publish(IL, self.il.state(id, o.prop), encode_value(o.value), True, 1))
-            elif isinstance(o, Absent):
-                pubs.append(Publish(IL, self.il.state(id, o.prop), "", True, 1))
-            elif isinstance(o, Event):
-                pubs.append(Publish(IL, self.il.state(id, o.prop), o.kind, False, 1))
-            elif isinstance(o, Reject):
-                pubs.append(Publish(IL, self.il.reject(id), json.dumps({"prop": o.prop, "code": o.code,
-                                                                        "reason": o.reason}), False, 1))
-            elif isinstance(o, SetTimer):
-                pubs.append(Schedule(id, o.name, o.after))
-            elif isinstance(o, CancelTimer):
-                pubs.append(Unschedule(id, o.name))
-            elif isinstance(o, SendMessage) and o.channel == "set":
-                pubs.append(BridgeCommand(id, "set", o.json["dps"]))
-        return pubs
+        return [p for o in outs if (p := self._il_pub(id, o)) is not None]
+
+    def _il_pub(self, id: str, o: Any) -> Publish | Schedule | Unschedule | BridgeCommand | None:
+        match o:
+            case Descriptor(desc):
+                desc = {**desc, "source": self.il.source}            # M-12: the presence topic's `<source>`
+                return _retained(self.il.descriptor(id), json.dumps(desc, ensure_ascii=False))
+            case Value(prop, value):
+                return _retained(self.il.state(id, prop), encode_value(value))
+            case Absent(prop):
+                return _retained(self.il.state(id, prop))
+            case Event(prop, kind):
+                return Publish(IL, self.il.state(id, prop), kind, False, 1)
+            case Reject(prop, code, reason):
+                return Publish(IL, self.il.reject(id), json.dumps({"prop": prop, "code": code, "reason": reason}),
+                               False, 1)
+            case SetTimer(name, after):
+                return Schedule(id, name, after)
+            case CancelTimer(name):
+                return Unschedule(id, name)
+            case SendMessage("set", payload):
+                return BridgeCommand(id, "set", payload["dps"])
+        return None

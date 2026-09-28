@@ -41,14 +41,28 @@ from __future__ import annotations
 import copy
 import json
 
+from .assemble import Binding
+from .checks import integral
+from .converters import BUILTIN as BUILTIN_CONVERTERS
+from .tuya import ops
 from .tuya.adapter import Remap
-from .tuya.model import DeviceSchema, DpSpec, normalize_type
+from .tuya.model import (
+    BOOLEAN,
+    ENUM,
+    INTEGER,
+    DeviceSchema,
+    DpSpec,
+    SchemaError,
+    normalize_type,
+)
 from .tuya.quirks import apply_quirk
+from .tuya.runtime import EntityPlan
 
 _BLOCK = {"dp", "remove", "category", "props", "device", "converters", "remap", "expose_unused", "auto"}
 _DP = {"code", "type", "values", "mode", "report_type"}
 _REMAP = {"alias", "invert"}
-_PROP = {"label", "class", "category", "unit", "series", "rw", "hide", "role"}
+_PATCH_FIELDS = ("label", "class", "category", "unit", "series", "role")     # copied as given; null clears
+_PROP = {*_PATCH_FIELDS, "rw", "hide"}
 _PROP_DEF = {"src", "type", "label", "class", "category", "unit", "series", "rw", "role", "min", "max", "step",
              "options", "send"}
 _DEF_TYPES = {"binary", "number", "select", "text", "trigger"}
@@ -139,7 +153,6 @@ def validate(block: dict, where: str = "override", converter_types=None) -> dict
             raise OverrideError(f"{where}.remap.{code}.alias: two device values map to the same standard value")
         if not isinstance(r.get("invert", False), bool):
             raise OverrideError(f"{where}.remap.{code}.invert: true or false")
-    from .converters import BUILTIN as BUILTIN_CONVERTERS
     known = set(BUILTIN_CONVERTERS) | set(converter_types or ())
     for name, cfg in (block.get("converters") or {}).items():
         if name not in known:
@@ -163,10 +176,10 @@ def patch_schema(schema: DeviceSchema, block: dict, dpcodes: dict[str, str] | No
                  ) -> tuple[DeviceSchema, set[str]]:
     """Apply `dp`, `category`, `remove` and the Enum side of `remap`. `dpcodes`: the device's ``{dp id: code}`` before
     the patch (what a rename starts from). Returns the patched schema and the codes that were removed."""
-    ops: list[dict] = []
+    quirk_ops: list[dict] = []
     renamed: list[tuple[str, str]] = []
     if block.get("category"):
-        ops.append({"op": "SetCategory", "category": block["category"]})
+        quirk_ops.append({"op": "SetCategory", "category": block["category"]})
     for dpid, d in (block.get("dp") or {}).items():
         if "type" not in d:
             old = (dpcodes or {}).get(str(dpid))
@@ -174,40 +187,36 @@ def patch_schema(schema: DeviceSchema, block: dict, dpcodes: dict[str, str] | No
                 raise OverrideError(f"dp.{dpid}: the device has no dp {dpid} to rename; give its `type` to define it")
             renamed.append((old, d["code"]))
             continue
-        ops.append({"op": "DefineDp", "dpid": int(dpid) if str(dpid).isdigit() else dpid, "code": d["code"],
+        quirk_ops.append({"op": "DefineDp", "dpid": int(dpid) if str(dpid).isdigit() else dpid, "code": d["code"],
                     "type": d["type"], "mode": d.get("mode", "RW"), "values": d.get("values") or {},
                     "report_type": d.get("report_type")})
-    if renamed:
-        schema = copy.deepcopy(schema)
-        for old, new in renamed:
-            for table in (schema.function, schema.status_range):
-                if old in table:
-                    spec = table.pop(old)
-                    table[new] = DpSpec(new, spec.type, spec.values, spec.report_type)
-            if old in schema.status:
-                schema.status[new] = schema.status.pop(old)
-            schema.dpmap = {k: (new if v == old else v) for k, v in schema.dpmap.items()}
-    if ops:
-        schema = apply_quirk(schema, {"ops": ops})
     aliased = {code: r["alias"] for code, r in (block.get("remap") or {}).items() if r.get("alias")}
-    if aliased:
-        schema = copy.deepcopy(schema)
-        for code, alias in aliased.items():
-            for table in (schema.function, schema.status_range):
-                spec = table.get(code)
-                if spec is not None and normalize_type(spec.type) == "Enum" and spec._values():
-                    v = dict(spec._values())
-                    v["range"] = [alias.get(x, x) for x in v.get("range", [])]
-                    table[code] = DpSpec(code, spec.type, v, spec.report_type)
-            if isinstance(schema.status.get(code), str):
-                schema.status[code] = alias.get(schema.status[code], schema.status[code])
     removed = set(block.get("remove") or [])
-    if removed:
+    if renamed or aliased or removed:
         schema = copy.deepcopy(schema)
-        for code in removed:
-            schema.function.pop(code, None)
-            schema.status_range.pop(code, None)
-            schema.status.pop(code, None)
+    for old, new in renamed:
+        for table in (schema.function, schema.status_range):
+            if old in table:
+                spec = table.pop(old)
+                table[new] = DpSpec(new, spec.type, spec.values, spec.report_type)
+        if old in schema.status:
+            schema.status[new] = schema.status.pop(old)
+        schema.dpmap = {k: (new if v == old else v) for k, v in schema.dpmap.items()}
+    if quirk_ops:
+        schema = apply_quirk(schema, {"ops": quirk_ops})
+    for code, alias in aliased.items():
+        for table in (schema.function, schema.status_range):
+            spec = table.get(code)
+            if spec is not None and normalize_type(spec.type) == ENUM and (v := spec.value_map()):
+                v = {**v, "range": [alias.get(x, x) for x in v.get("range", [])]}
+                table[code] = DpSpec(code, spec.type, v, spec.report_type)
+        if isinstance(schema.status.get(code), str):
+            schema.status[code] = alias.get(schema.status[code], schema.status[code])
+    for code in removed:
+        schema.function.pop(code, None)
+        schema.status_range.pop(code, None)
+        schema.status.pop(code, None)
+    if removed:
         schema.dpmap = {k: v for k, v in schema.dpmap.items() if v not in removed}
     return schema, removed
 
@@ -225,14 +234,13 @@ def patch_adapter(adapter, block: dict, removed: set[str], schema: DeviceSchema 
     for dpid in [k for k, e in adapter.entries.items() if e[0] in removed]:
         del adapter.entries[dpid]
     for code, r in (block.get("remap") or {}).items():
-        alias = dict(r.get("alias") or {})
         bounds = None
-        spec = schema and (schema.status_range.get(code) or schema.function.get(code))
-        if spec is not None and normalize_type(spec.type) == "Integer":
-            v = spec._values() or {}
+        spec = schema.spec(code) if schema else None
+        if spec is not None and normalize_type(spec.type) == INTEGER:
+            v = spec.value_map() or {}
             if "min" in v and "max" in v:
                 bounds = (v["min"], v["max"])
-        adapter.remaps[code] = Remap(alias, bool(r.get("invert")), bounds)
+        adapter.remaps[code] = Remap(dict(r.get("alias") or {}), bool(r.get("invert")), bounds)
 
 
 # --- descriptor layer ------------------------------------------------------------------------------
@@ -241,22 +249,20 @@ def patch_descriptor(assembly, block: dict, schema: DeviceSchema | None = None) 
     patched one) is needed for a property `props` defines from a dp."""
     desc, bindings = assembly.descriptor, assembly.bindings
     for prop, p in (block.get("props") or {}).items():
+        if prop == "available":
+            raise OverrideError("props.available cannot be overridden")
         if "src" in p:
-            if prop == "available":
-                raise OverrideError("props.available cannot be overridden")
             desc["props"][prop], bindings[prop] = _define(prop, p, schema)
             continue
         d = desc["props"].get(prop)
         if d is None:
             raise OverrideError(f"props.{prop}: the device has no such property "
                                 f"(has {sorted(k for k in desc['props'] if k != 'available')})")
-        if prop == "available":
-            raise OverrideError("props.available cannot be overridden")
         if p.get("hide"):
             del desc["props"][prop]
             bindings.pop(prop, None)
             continue
-        for field in ("label", "class", "category", "unit", "series", "role"):
+        for field in _PATCH_FIELDS:
             if field in p:
                 if p[field] is None:
                     d.pop(field, None)
@@ -277,24 +283,17 @@ def patch_descriptor(assembly, block: dict, schema: DeviceSchema | None = None) 
             desc.pop(field, None)
         else:
             desc[field] = v
-    groups = desc.get("groups")
-    if groups:                                                  # a group left with no property is dropped
+    if groups := desc.get("groups"):                            # a group left with no property is dropped
         used = {d.get("group") for d in desc["props"].values()}
-        for g in [g for g in groups if g not in used]:
-            del groups[g]
-        if not groups:
+        desc["groups"] = {g: v for g, v in groups.items() if g in used}
+        if not desc["groups"]:
             del desc["groups"]
 
 
 def _define(prop: str, p: dict, schema: DeviceSchema | None):
     """(definition, binding) of a property `props` defines from the dp `p["src"]`."""
-    from .assemble import Binding
-    from .tuya import ops
-    from .tuya.model import BOOLEAN, ENUM, INTEGER, SchemaError
-    from .tuya.runtime import EntityPlan
-
     where, code = f"props.{prop}", p["src"]
-    spec = schema and (schema.status_range.get(code) or schema.function.get(code))
+    spec = schema.spec(code) if schema else None
     if spec is None:
         raise OverrideError(f"{where}.src: the device has no dp {code!r} (define it in `dp`)")
     kind = normalize_type(spec.type)
@@ -321,7 +320,7 @@ def _define(prop: str, p: dict, schema: DeviceSchema | None):
             return ops.validate_bool_read(raw)
         if t == "number":
             v = ops.validate_int_read(parsed, raw)
-            return None if v is None else int(v) if float(v).is_integer() else v
+            return None if v is None else integral(v)
         if t == "select":
             v = ops.validate_enum_read(parsed, raw)
             return v if v in d["options"] else None
@@ -330,10 +329,9 @@ def _define(prop: str, p: dict, schema: DeviceSchema | None):
     d: dict = {"type": t}
     if t == "number":
         for k, v in (("min", parsed.min), ("max", parsed.max), ("step", parsed.step)):
-            d[k] = p.get(k, ops.scale_value(parsed, v))
-            d[k] = int(d[k]) if float(d[k]).is_integer() else d[k]
-        if p.get("unit", parsed.unit):
-            d["unit"] = p.get("unit", parsed.unit)
+            d[k] = integral(p.get(k, ops.scale_value(parsed, v)))
+        if unit := p.get("unit", parsed.unit):
+            d["unit"] = unit
     elif t == "select":
         d["options"] = list(p.get("options") or parsed.range)
     rw = t not in ("trigger", "text") and p.get("rw", writable)
@@ -350,5 +348,4 @@ def _define(prop: str, p: dict, schema: DeviceSchema | None):
     plan = EntityPlan("override", code, {}, {}, (code,))
     if t == "trigger":
         return d, Binding(prop, plan, write=lambda v, codes: [{"code": code, "value": to_raw(p["send"])}])
-    return d, Binding(prop, plan, read=read,
-                      write=(lambda v, codes: [{"code": code, "value": to_raw(v)}]) if rw else None)
+    return d, Binding(prop, plan, read=read, write=(lambda v, codes: [{"code": code, "value": to_raw(v)}]) if rw else None)

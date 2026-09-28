@@ -4,9 +4,8 @@ delivered with `retain=False`; an empty retained payload clears the topic."""
 from __future__ import annotations
 
 import asyncio
-import inspect
 
-from .transport import Callback, Message, Unsubscribe
+from .transport import Callback, Message, Unsubscribe, deliver
 
 
 def matches(filter_: str, topic: str) -> bool:
@@ -31,7 +30,7 @@ class InProcessTransport:
         entry = (topic, callback)
         self._subs.append(entry)
         for msg in [m for t, m in self.retained.items() if matches(topic, t)]:
-            self._deliver(callback, msg)
+            deliver(callback, msg, self._tasks)
 
         def unsubscribe() -> None:
             if entry in self._subs:
@@ -49,14 +48,7 @@ class InProcessTransport:
         live = Message(topic, payload, False)
         for filter_, callback in list(self._subs):
             if matches(filter_, topic):
-                self._deliver(callback, live)
-
-    def _deliver(self, callback: Callback, msg: Message) -> None:
-        result = callback(msg)
-        if inspect.isawaitable(result):
-            task = asyncio.ensure_future(result)
-            self._tasks.add(task)
-            task.add_done_callback(self._tasks.discard)
+                deliver(callback, live, self._tasks)
 
     async def settle(self) -> None:
         """Wait for the asynchronous callbacks started so far."""

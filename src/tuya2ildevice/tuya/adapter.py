@@ -104,8 +104,9 @@ def _b64_hex(raw: str) -> str:
     return base64.b64decode(raw).hex()
 
 
-def _hsv_from_rgb(r: int, g: int, b: int) -> dict:
-    h, s, v = colorsys.rgb_to_hsv(r / 255, g / 255, b / 255)
+def _hsv_from_hex_rgb(rgb: str) -> dict:
+    """`RRGGBB` -> `{"h": 0..360, "s", "v": 0..255}`."""
+    h, s, v = colorsys.rgb_to_hsv(*(int(rgb[i:i + 2], 16) / 255 for i in (0, 2, 4)))
     return {"h": round(h * 360, 1), "s": round(s * 255, 1), "v": round(v * 255, 1)}
 
 
@@ -115,18 +116,10 @@ def _dj_v1_hsv(raw, digits):
     if raw is None:
         return None
     if raw[6:] == "0168ffff":
-        return json.dumps(_hsv_from_rgb(int(raw[0:2], 16), int(raw[2:4], 16), int(raw[4:6], 16)))
+        return json.dumps(_hsv_from_hex_rgb(raw[:6]))
     s = round(int(raw[10:12], 16) / 255, digits)
     v = round(int(raw[12:], 16) / 255, digits)
     return json.dumps({"h": int(raw[6:10], 16) / 1.0, "s": round(s * 255, 1), "v": round(v * 255, 1)})
-
-
-def _r_dj_v1_hsv(raw, ci):
-    return _dj_v1_hsv(raw, 3)
-
-
-def _r_voice_atm(raw, ci):
-    return _dj_v1_hsv(raw, 4)
 
 
 def _r_dj_v1_scene(raw, ci):
@@ -135,8 +128,7 @@ def _r_dj_v1_scene(raw, ci):
     if not raw:
         return ""
     body = raw[8:]
-    hsv = [_hsv_from_rgb(int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16)) for c in
-           (body[i:i + 6] for i in range(0, len(body), 6))]
+    hsv = [_hsv_from_hex_rgb(body[i:i + 6]) for i in range(0, len(body), 6)]
     return json.dumps({"frequency": int(raw[4:6], 16), "bright": int(raw[0:2], 16), "temperature": int(raw[2:4], 16),
                        "hsv": hsv})
 
@@ -161,14 +153,6 @@ def _timers(raw, width):
     return json.dumps(out)
 
 
-def _r_timer1(raw, ci):
-    return _timers(raw, 6)
-
-
-def _r_timer2(raw, ci):
-    return _timers(raw, 10)
-
-
 def _r_hb_djv1_color(raw, ci):
     if raw is None:
         return None
@@ -186,14 +170,6 @@ def _hb_range(raw, t_min, t_max, i_min, i_max):
         return ""
     x = min(i_max, max(i_min, int(raw)))
     return min(t_max, max(t_min, math.floor((t_max - t_min) / (i_max - i_min) * (x - i_min) + t_min)))
-
-
-def _r_hb_range_v1(raw, ci):
-    return _hb_range(raw, 0, 100, 25, 255)
-
-
-def _r_hb_range_v2(raw, ci):
-    return _hb_range(raw, 1000, 12000, 0, 255)
 
 
 def _r_ms_syn(raw, ci):
@@ -370,15 +346,15 @@ STRATEGIES = {
     "dj_v2_contr_alg": (_r_contr, _w_contr),
     "dj_v2_music_alg": (_r_contr, _w_contr),
     "dj_v2_scene_alg": (_r_scene, _w_scene),
-    "dj_v1_hsv_alg": (_r_dj_v1_hsv, _w_dj_v1_hsv),
-    "voice_atm_color": (_r_voice_atm, _w_dj_v1_hsv),
+    "dj_v1_hsv_alg": (lambda raw, ci: _dj_v1_hsv(raw, 3), _w_dj_v1_hsv),
+    "voice_atm_color": (lambda raw, ci: _dj_v1_hsv(raw, 4), _w_dj_v1_hsv),
     "dj_v1_scene_alg": (_r_dj_v1_scene, _w_readonly),
-    "cz_timer1_alg": (_r_timer1, lambda v, ci: _w_timers(v, 6)),
-    "cz_timer2_alg": (_r_timer2, lambda v, ci: _w_timers(v, 10)),
+    "cz_timer1_alg": (lambda raw, ci: _timers(raw, 6), lambda v, ci: _w_timers(v, 6)),
+    "cz_timer2_alg": (lambda raw, ci: _timers(raw, 10), lambda v, ci: _w_timers(v, 10)),
     "hb_djv1_color": (_r_hb_djv1_color, _w_readonly),
     "hb_jsq_lightv1": (_r_hb_jsq, _w_hb_jsq),
-    "hb_range_v1": (_r_hb_range_v1, _w_readonly),
-    "hb_range_v2": (_r_hb_range_v2, _w_readonly),
+    "hb_range_v1": (lambda raw, ci: _hb_range(raw, 0, 100, 25, 255), _w_readonly),
+    "hb_range_v2": (lambda raw, ci: _hb_range(raw, 1000, 12000, 0, 255), _w_readonly),
     "ms_dp_syn_alg": (_r_ms_syn, _w_readonly),
     "sd_clean_record": (_r_sd_clean, _w_readonly),
     "db_v1_params": (_r_db_params, _w_readonly),

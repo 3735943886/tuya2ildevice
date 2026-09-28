@@ -4,8 +4,7 @@ from __future__ import annotations
 import base64
 import binascii
 import json
-import struct
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 
@@ -20,34 +19,25 @@ class ElectricityData:
     power_factor: float | None = None
 
 
+# the signed layout's last byte: bit -> the attribute it negates
+_SIGN_BITS = ((0x01, "current"), (0x02, "power"), (0x04, "reactive_power"), (0x08, "power_factor"))
+
+
+def _uint(b: bytes) -> int:
+    return int.from_bytes(b, "big")
+
+
 def electricity_from_bytes(raw: bytes) -> ElectricityData | None:
-    is_v1 = len(raw) == 17 and raw[0:2] == b"\x01\x0f"
-    is_v2 = len(raw) == 18 and raw[0:2] == b"\x02\x0f"
-    if is_v1 or is_v2:
+    signed = len(raw) == 18 and raw[0:2] == b"\x02\x0f"
+    if signed or (len(raw) == 17 and raw[0:2] == b"\x01\x0f"):
         d = raw[2:17]
-        voltage = struct.unpack(">H", d[0:2])[0] / 10.0
-        current = struct.unpack(">L", b"\x00" + d[2:5])[0]
-        power = struct.unpack(">L", b"\x00" + d[5:8])[0]
-        reactive = struct.unpack(">L", b"\x00" + d[8:11])[0]
-        apparent = struct.unpack(">L", b"\x00" + d[11:14])[0]
-        pf = d[14] / 100.0
-        if is_v2:
-            sign = raw[17]
-            if sign & 0x01:
-                current = -current
-            if sign & 0x02:
-                power = -power
-            if sign & 0x04:
-                reactive = -reactive
-            if sign & 0x08:
-                pf = -pf
-        return ElectricityData(current, power, voltage, reactive, apparent, pf)
+        out = ElectricityData(current=_uint(d[2:5]), power=_uint(d[5:8]), voltage=_uint(d[0:2]) / 10.0,
+                              reactive_power=_uint(d[8:11]), apparent_power=_uint(d[11:14]), power_factor=d[14] / 100.0)
+        if signed:
+            out = replace(out, **{k: -getattr(out, k) for bit, k in _SIGN_BITS if raw[17] & bit})
+        return out
     if len(raw) >= 8:
-        return ElectricityData(
-            struct.unpack(">L", b"\x00" + raw[2:5])[0],
-            struct.unpack(">L", b"\x00" + raw[5:8])[0],
-            struct.unpack(">H", raw[0:2])[0] / 10.0,
-        )
+        return ElectricityData(current=_uint(raw[2:5]), power=_uint(raw[5:8]), voltage=_uint(raw[0:2]) / 10.0)
     return None
 
 

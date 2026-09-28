@@ -1,6 +1,9 @@
 """Platform builders (L2, hand-authored, reviewed against tuya-device-handlers definition/*.py)."""
 from __future__ import annotations
 
+import collections
+import json
+import re
 from typing import Any
 
 from . import codecs, ops
@@ -24,12 +27,54 @@ from .runtime import (
     builder,
     identity,
 )
-from .units import resolve_unit
+from .units import TEMP_CONVERT, resolve_unit
+
+_FF = "function_first"
 
 
 def _find(schema: DeviceSchema, desc: dict[str, Any], kind: str):
     """get_default_definition: `<Kind>Wrapper.find_dpcode(device, key, prefer_function=True)`."""
-    return resolve(schema, DpRef((desc["key"],), (kind,), "function_first"))
+    return resolve(schema, DpRef((desc["key"],), (kind,), _FF))
+
+
+def _units(platform: str, schema: DeviceSchema, env: HostEnv, desc: dict[str, Any], ident: dict[str, Any],
+           device_class: str | None, dp_unit: str | None, suggested: str | None = None) -> None:
+    """Set the identity's device class and units by the unit policy (spec 5.3)."""
+    ur = resolve_unit(platform, device_class, dp_unit, desc.get("native_unit_of_measurement"),
+                      desc.get("suggested_unit_of_measurement") or suggested,
+                      schema.status.get("temp_unit_convert"), env.allowed_units)
+    ident.update(device_class=ur.device_class, native_unit=ur.native_unit, suggested_unit=ur.suggested_unit)
+
+
+def _bool(role, st: dict[str, Any]) -> Any:
+    """A Boolean role's value, None without the role."""
+    return ops.validate_bool_read(st.get(role.code)) if role else None
+
+
+def _enum(role, st: dict[str, Any]) -> Any:
+    """An Enum role's value, None without the role."""
+    return ops.validate_enum_read(role.spec, st.get(role.code)) if role else None
+
+
+def _rounded(role, st: dict[str, Any]) -> int | None:
+    """An Integer role's scaled value, rounded; None without the role."""
+    v = None if role is None else ops.validate_int_read(role.spec, st.get(role.code))
+    return None if v is None else round(v)
+
+
+def _decode(raw: bytes | None, encoding: str) -> str | None:
+    """P-14 (deviate): core raises on an undecodable payload; the engine yields UNKNOWN."""
+    try:
+        return None if raw is None else raw.decode(encoding)
+    except UnicodeDecodeError:
+        return None
+
+
+def _composite(platform: str, desc: dict[str, Any], ident: dict[str, Any], read, write, **roles) -> EntityPlan:
+    """A multi-dp plan: the roles found (in order; a missing one is None) and the dps they read, every update."""
+    found = {k: v for k, v in roles.items() if v}
+    deps = tuple(dict.fromkeys(v.code for v in found.values()))
+    return EntityPlan(platform, desc["key"], ident, found, deps, read, write, update_all=True)
 
 
 @builder("switch", "SWITCHES")
@@ -76,11 +121,9 @@ def number(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> EntityPl
         return None
     code, spec = r.code, r.spec
     ident = identity(desc)
-    ur = resolve_unit("number", desc.get("device_class"), spec.unit, desc.get("native_unit_of_measurement"),
-                      desc.get("suggested_unit_of_measurement"), schema.status.get("temp_unit_convert"), env.allowed_units)
-    ident.update(device_class=ur.device_class, native_unit=ur.native_unit, suggested_unit=ur.suggested_unit)
-    ident.update(native_min_value=ops.scale_value(spec, spec.min), native_max_value=ops.scale_value(spec, spec.max),
-                 native_step=ops.scale_value(spec, spec.step))
+    _units("number", schema, env, desc, ident, desc.get("device_class"), spec.unit)
+    lo, hi = ops.scaled_range(spec)
+    ident.update(native_min_value=lo, native_max_value=hi, native_step=ops.scale_value(spec, spec.step))
     def read(st):
         return {"native_value": ops.validate_int_read(spec, st.get(code))}
     def write(action, args, st):
@@ -107,7 +150,7 @@ def binary_sensor(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> E
     if r is not None:
         return EntityPlan("binary_sensor", desc["key"], ident, {"main": r}, (r.code,),
                           lambda st: {"is_on": ops.validate_bool_read(st.get(r.code))})
-    if not (dpcode in schema.function or dpcode in schema.status or dpcode in schema.status_range):
+    if not schema.has(dpcode):
         return None
     on = desc.get("on_value", True)
     valid = set(on["$set"]) if isinstance(on, dict) else {on}
@@ -130,9 +173,7 @@ def sensor(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> EntityPl
         if delta:
             ident.setdefault("state_class", "total_increasing")
         ident["kind"] = "delta" if delta else "integer"
-        ur = resolve_unit("sensor", desc.get("device_class"), spec.unit, desc.get("native_unit_of_measurement"),
-                          desc.get("suggested_unit_of_measurement"), schema.status.get("temp_unit_convert"), env.allowed_units)
-        ident.update(device_class=ur.device_class, native_unit=ur.native_unit, suggested_unit=ur.suggested_unit)
+        _units("sensor", schema, env, desc, ident, desc.get("device_class"), spec.unit)
         if delta:
             def read(st, slot=None):
                 return {"native_value": slot.total if slot else 0.0}
@@ -148,25 +189,22 @@ def sensor(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> EntityPl
             dc = "enum"
             ident["options"] = list(spec.range)
         ident["kind"] = "enum"
-        ur = resolve_unit("sensor", dc, None, desc.get("native_unit_of_measurement"),
-                          desc.get("suggested_unit_of_measurement"), schema.status.get("temp_unit_convert"), env.allowed_units)
-        ident.update(device_class=ur.device_class, native_unit=ur.native_unit, suggested_unit=ur.suggested_unit)
+        _units("sensor", schema, env, desc, ident, dc, None)
         def read(st):
             return {"native_value": ops.validate_enum_read(spec, st.get(code))}
         return EntityPlan("sensor", desc["key"], ident, {"main": re_}, (code,), read)
     return None
 
 
-def _finish_sensor(schema, env, desc, ident, dc, dp_unit, wrapper_suggested):
-    ur = resolve_unit("sensor", dc, dp_unit, desc.get("native_unit_of_measurement"),
-                      desc.get("suggested_unit_of_measurement") or wrapper_suggested,
-                      schema.status.get("temp_unit_convert"), env.allowed_units)
-    ident.update(device_class=ur.device_class, native_unit=ur.native_unit, suggested_unit=ur.suggested_unit)
+def _electricity_parser(form: str):
+    """Raw (base64 bytes) or HexString payload -> `ElectricityData` | None."""
+    if form == "Raw":
+        return lambda v: None if (b := codecs.b64_decode(v)) is None else codecs.electricity_from_bytes(b)
+    return codecs.electricity_from_hex
 
 
 def _wrapped_sensor(schema, env, desc, dpcode, ident):
     """First wrapper class (in table order) whose find_dpcode succeeds wins."""
-    import re
     for wname in desc["wrapper_class"]:
         w = wname.lstrip("$")
         if w == "WindDirectionEnumWrapper":
@@ -174,10 +212,10 @@ def _wrapped_sensor(schema, env, desc, dpcode, ident):
             if r is None:
                 continue
             code = r.code
-            _finish_sensor(schema, env, desc, ident, desc.get("device_class"), None, None)
+            _units("sensor", schema, env, desc, ident, desc.get("device_class"), None)
             ident["kind"] = "wind_direction"
             def read(st, code=code):
-                return {"native_value": None if st.get(code) is None else codecs.WIND_DIRECTIONS.get(st.get(code))}
+                return {"native_value": None if (v := st.get(code)) is None else codecs.WIND_DIRECTIONS.get(v)}
             return EntityPlan("sensor", desc["key"], ident, {"main": r}, (code,), read)
         m = re.fullmatch(r"Electricity(\w+?)(Raw|Json|HexString)Wrapper", w)
         if not m:
@@ -202,9 +240,7 @@ def _wrapped_sensor(schema, env, desc, dpcode, ident):
             if r is None:
                 continue
             code = r.code
-            def parse(v, form=form):
-                return codecs.electricity_from_bytes(codecs.b64_decode(v)) if form == "Raw" and codecs.b64_decode(v) is not None \
-                    else (codecs.electricity_from_hex(v) if form != "Raw" else None)
+            parse = _electricity_parser(form)
             first = schema.status.get(code)
             if first:
                 pv = parse(first)
@@ -216,7 +252,7 @@ def _wrapped_sensor(schema, env, desc, dpcode, ident):
                     return {"native_value": None}
                 pv = parse(v)
                 return {"native_value": None if pv is None else getattr(pv, attr)}
-        _finish_sensor(schema, env, desc, ident, desc.get("device_class"), unit, sug)
+        _units("sensor", schema, env, desc, ident, desc.get("device_class"), unit, sug)
         ident["kind"] = f"electricity_{form.lower()}"
         return EntityPlan("sensor", desc["key"], ident, {"main": r}, (code,), read)
     return None
@@ -254,28 +290,18 @@ def valve(schema, env, desc):
 @builder("camera", "CAMERAS")
 def camera(schema, env, desc):
     """Existence Always; roles motion_switch (function_first) and record_switch are both optional (spec 6.5)."""
-    m = resolve(schema, DpRef(("motion_switch",), (BOOLEAN,), "function_first"))
+    m = resolve(schema, DpRef(("motion_switch",), (BOOLEAN,), _FF))
     rec = resolve(schema, DpRef(("record_switch",), (BOOLEAN,)))
     roles = {k: v for k, v in (("motion_switch", m), ("record_switch", rec)) if v}
     def read(st):
-        rv = ops.validate_bool_read(st.get(rec.code)) if rec else None
-        mv = ops.validate_bool_read(st.get(m.code)) if m else None
-        return {"is_recording": rv if rv is not None else False,
-                "motion_detection_enabled": mv if mv else False}
+        rv, mv = _bool(rec, st), _bool(m, st)
+        return {"is_recording": rv if rv is not None else False, "motion_detection_enabled": mv or False}
     def write(action, args, st):
         if m is None:
             raise WriteRejected("motion_switch not available")   # TODO parity: core raises ActionDPCodeNotFound?
         return [{"code": m.code, "value": action == "enable_motion_detection"}]
     return EntityPlan("camera", desc["key"], identity(desc), roles, tuple(v.code for v in roles.values()), read, write,
                       update_all=True)
-
-
-def _utf8(raw: bytes | None) -> str | None:
-    """P-14 (deviate): core raises on an undecodable payload; the engine yields UNKNOWN."""
-    try:
-        return None if raw is None else raw.decode("utf-8")
-    except UnicodeDecodeError:
-        return None
 
 
 @builder("event", "EVENTS")
@@ -290,7 +316,7 @@ def event(schema, env, desc):
         ident["event_types"] = list(r.spec.range)
         code = r.code
         def read(st):
-            return {"event": None if st.get(code) is None else (st.get(code), None)}
+            return {"event": None if (v := st.get(code)) is None else (v, None)}
     else:
         kind = STRING if w == "Base64Utf8StringEventWrapper" else RAW
         r = resolve(schema, DpRef((dpcode,), (kind,)))
@@ -302,7 +328,7 @@ def event(schema, env, desc):
             raw = st.get(code)
             if raw is None:
                 return {"event": None}
-            return {"event": ("triggered", {"message": _utf8(codecs.b64_decode(raw))})}
+            return {"event": ("triggered", {"message": _decode(codecs.b64_decode(raw), "utf-8")})}
     return EntityPlan("event", desc["key"], ident, {"main": r}, (code,), read, slot_kind="event")
 
 
@@ -317,6 +343,11 @@ def _codes(v) -> tuple[str, ...]:
     return () if v is None else ((v,) if isinstance(v, str) else tuple(v))
 
 
+def _opt(schema: DeviceSchema, desc: dict[str, Any], field: str, kind: str, source: str = _FF):
+    """The role the description names in `field` (a code or a list of them), None when it names none."""
+    return resolve(schema, DpRef(_codes(desc[field]), (kind,), source)) if desc.get(field) else None
+
+
 @builder("cover", "COVERS")
 def cover(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> EntityPlan | None:
     ikey = desc["key"]
@@ -324,15 +355,9 @@ def cover(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> EntityPla
         return None
     # Deliberate deviation from core: the position is the device's own number, never mirrored (core reverses it,
     # by control_back_mode or always). A device that counts the other way gets `remap.invert` in its override.
-    def reverse(st):
-        return False
-
-    def int_role(codes, source="status_range_first"):
-        return resolve(schema, DpRef(_codes(codes), (INTEGER,), source)) if codes else None
-
-    cur = int_role(desc.get("current_position"))
-    setp = int_role(desc.get("set_position"), "function_first")
-    tilt = resolve(schema, DpRef(("angle_horizontal", "angle_vertical"), (INTEGER,), "function_first"))
+    cur = _opt(schema, desc, "current_position", INTEGER, "status_range_first")
+    setp = _opt(schema, desc, "set_position", INTEGER)
+    tilt = resolve(schema, DpRef(("angle_horizontal", "angle_vertical"), (INTEGER,), _FF))
 
     # current_state: Enum(closed map) by default, or an inverted Boolean
     cs_w = (desc.get("current_state_wrapper") or "$CoverClosedEnumWrapper").lstrip("$")
@@ -343,12 +368,12 @@ def cover(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> EntityPla
     # instruction: (description's enum wrapper) or Boolean(open/close)
     special = (desc.get("instruction_wrapper") or "").lstrip("$") == "CoverInstructionSpecialEnumWrapper"
     table = _COVER_ENUM_SPECIAL if special else _COVER_ENUM
-    ins = resolve(schema, DpRef((ikey,), (ENUM,), "function_first"))
+    ins = resolve(schema, DpRef((ikey,), (ENUM,), _FF))
     ins_kind = "enum"
     if ins is not None:
         options = [a for a, raw in table.items() if raw in ins.spec.range]
     else:
-        ins = resolve(schema, DpRef((ikey,), (BOOLEAN,), "function_first"))
+        ins = resolve(schema, DpRef((ikey,), (BOOLEAN,), _FF))
         ins_kind, options = "boolean", ["open", "close"]
 
     features = 0
@@ -364,7 +389,7 @@ def cover(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> EntityPla
     pos_src = cur or setp     # current_position_wrapper or set_position_wrapper
 
     def pos_read(role, st):
-        return None if role is None else ops.remap_read(role.spec, st.get(role.code), 0, 100, reverse(st))
+        return None if role is None else ops.remap_read(role.spec, st.get(role.code), 0, 100)
 
     def read(st):
         position = pos_read(pos_src, st)
@@ -380,35 +405,30 @@ def cover(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> EntityPla
             closed = None if v is None else _CLOSED_ENUM.get(v)
         return {"is_closed": closed, "current_position": position, "current_tilt_position": pos_read(tilt, st)}
 
-    def instr(action, st):
+    def instr(action):
         if ins is None or action not in options:
             return []
-        if ins_kind == "boolean":
-            raw = {"open": True, "close": False}[action]
-        else:
-            raw = table[action]
+        raw = {"open": True, "close": False}[action] if ins_kind == "boolean" else table[action]
         return [{"code": ins.code, "value": raw}]
 
-    def write_pos(role, value, st):
-        return [{"code": role.code, "value": ops.remap_write(role.spec, value, 0, 100, reverse(st))}]
+    def write_pos(role, value):
+        return [{"code": role.code, "value": ops.remap_write(role.spec, value, 0, 100)}]
 
     def write(action, args, st):
         if action == "open_cover":
-            return write_pos(setp, 100, st) if setp else instr("open", st)
+            return write_pos(setp, 100) if setp else instr("open")
         if action == "close_cover":
-            return write_pos(setp, 0, st) if setp else instr("close", st)
+            return write_pos(setp, 0) if setp else instr("close")
         if action == "stop_cover":
-            return instr("stop", st)
+            return instr("stop")
         if action == "set_cover_position":
-            return write_pos(setp, args["position"], st)
+            return write_pos(setp, args["position"])
         if action == "set_cover_tilt_position":
-            return write_pos(tilt, args["tilt_position"], st)
+            return write_pos(tilt, args["tilt_position"])
         raise KeyError(action)
 
-    roles = {k: v for k, v in (("instruction", ins), ("current_position", cur), ("set_position", setp),
-                               ("current_state", cs), ("tilt", tilt)) if v}
-    deps = tuple(dict.fromkeys(v.code for v in roles.values()))
-    return EntityPlan("cover", desc["key"], ident, roles, deps, read, write, update_all=True)
+    return _composite("cover", desc, ident, read, write, instruction=ins, current_position=cur, set_position=setp,
+                      current_state=cs, tilt=tilt)
 
 
 # --- fan ---------------------------------------------------------------------
@@ -422,16 +442,14 @@ _FAN_MODE = ("fan_mode", "mode")
 
 @builder("fan", "FANS")
 def fan(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> EntityPlan | None:
-    props = (*_FAN_SWITCH, *_FAN_SPEED, *_FAN_OSC, "fan_direction")
-    if not any(c in schema.function or c in schema.status or c in schema.status_range for c in props):
+    if not any(map(schema.has, (*_FAN_SWITCH, *_FAN_SPEED, *_FAN_OSC, "fan_direction"))):
         return None
-    F = "function_first"
-    direction = resolve(schema, DpRef(("fan_direction",), (ENUM,), F))
+    direction = resolve(schema, DpRef(("fan_direction",), (ENUM,), _FF))
     dir_options = [d for d in _FAN_DIRECTION if direction and d in direction.spec.range]
-    mode = resolve(schema, DpRef(_FAN_MODE, (ENUM,), F))
-    osc = resolve(schema, DpRef(_FAN_OSC, (BOOLEAN,), F))
-    speed = resolve(schema, DpRef(_FAN_SPEED, (INTEGER,), F)) or resolve(schema, DpRef(_FAN_SPEED, (ENUM,), F))
-    switch = resolve(schema, DpRef(_FAN_SWITCH, (BOOLEAN,), F))
+    mode = resolve(schema, DpRef(_FAN_MODE, (ENUM,), _FF))
+    osc = resolve(schema, DpRef(_FAN_OSC, (BOOLEAN,), _FF))
+    speed = resolve(schema, DpRef(_FAN_SPEED, (INTEGER,), _FF)) or resolve(schema, DpRef(_FAN_SPEED, (ENUM,), _FF))
+    switch = resolve(schema, DpRef(_FAN_SWITCH, (BOOLEAN,), _FF))
 
     ident = identity(desc)
     feats = 0
@@ -475,10 +493,8 @@ def fan(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> EntityPlan 
         if direction:
             raw = st.get(direction.code)
             d = raw if raw and raw in dir_options else None
-        return {"is_on": ops.validate_bool_read(st.get(switch.code)) if switch else None,
-                "percentage": speed_read(st), "direction": d,
-                "oscillating": ops.validate_bool_read(st.get(osc.code)) if osc else None,
-                "preset_mode": ops.validate_enum_read(mode.spec, st.get(mode.code)) if mode else None}
+        return {"is_on": _bool(switch, st), "percentage": speed_read(st), "direction": d,
+                "oscillating": _bool(osc, st), "preset_mode": _enum(mode, st)}
 
     def write(action, args, st):
         if action == "turn_off":
@@ -506,10 +522,8 @@ def fan(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> EntityPlan 
             return [{"code": direction.code, "value": ops.validate_enum_write(direction.spec, args["direction"])}]
         raise KeyError(action)
 
-    roles = {k: v for k, v in (("switch", switch), ("speed", speed), ("mode", mode), ("oscillate", osc),
-                               ("direction", direction)) if v}
-    return EntityPlan("fan", desc["key"], ident, roles, tuple(dict.fromkeys(v.code for v in roles.values())),
-                      read, write, update_all=True)
+    return _composite("fan", desc, ident, read, write, switch=switch, speed=speed, mode=mode, oscillate=osc,
+                      direction=direction)
 
 
 # --- humidifier ----------------------------------------------------------------
@@ -517,29 +531,22 @@ def fan(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> EntityPlan 
 def humidifier(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> EntityPlan | None:
     sw_codes = _codes(desc.get("dpcode") or desc["key"])
     cur_code, hum_code = desc.get("current_humidity"), desc.get("humidity")
-    probe = {*sw_codes, cur_code, hum_code} - {None}
-    if not any(c in schema.function or c in schema.status or c in schema.status_range for c in probe):
+    if not any(map(schema.has, {*sw_codes, cur_code, hum_code} - {None})):
         return None
-    F = "function_first"
-    cur = resolve(schema, DpRef(_codes(cur_code), (INTEGER,))) if cur_code else None
-    mode = resolve(schema, DpRef(("mode",), (ENUM,), F))
-    switch = resolve(schema, DpRef(sw_codes, (BOOLEAN,), F))
-    target = resolve(schema, DpRef(_codes(hum_code), (INTEGER,), F)) if hum_code else None
+    cur = _opt(schema, desc, "current_humidity", INTEGER, "status_range_first")
+    mode = resolve(schema, DpRef(("mode",), (ENUM,), _FF))
+    switch = resolve(schema, DpRef(sw_codes, (BOOLEAN,), _FF))
+    target = _opt(schema, desc, "humidity", INTEGER)
     ident = identity(desc)
-    ident["min_humidity"] = round(ops.scale_value(target.spec, target.spec.min)) if target else 0
-    ident["max_humidity"] = round(ops.scale_value(target.spec, target.spec.max)) if target else 100
+    lo, hi = ops.scaled_range(target.spec) if target else (0, 100)
+    ident["min_humidity"], ident["max_humidity"] = round(lo), round(hi)
     ident["supported_features"] = 1 if mode else 0
     if mode:
         ident["available_modes"] = list(mode.spec.range)
 
-    def rounded(role, st):
-        v = None if role is None else ops.validate_int_read(role.spec, st.get(role.code))
-        return None if v is None else round(v)
-
     def read(st):
-        return {"is_on": ops.validate_bool_read(st.get(switch.code)) if switch else None,
-                "mode": ops.validate_enum_read(mode.spec, st.get(mode.code)) if mode else None,
-                "target_humidity": rounded(target, st), "current_humidity": rounded(cur, st)}
+        return {"is_on": _bool(switch, st), "mode": _enum(mode, st),
+                "target_humidity": _rounded(target, st), "current_humidity": _rounded(cur, st)}
 
     def write(action, args, st):
         if action in ("turn_on", "turn_off"):
@@ -554,9 +561,8 @@ def humidifier(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> Enti
             return [{"code": mode.code, "value": ops.validate_enum_write(mode.spec, args["mode"])}]
         raise KeyError(action)
 
-    roles = {k: v for k, v in (("switch", switch), ("current_humidity", cur), ("target_humidity", target), ("mode", mode)) if v}
-    return EntityPlan("humidifier", desc["key"], ident, roles, tuple(dict.fromkeys(v.code for v in roles.values())),
-                      read, write, update_all=True)
+    return _composite("humidifier", desc, ident, read, write, switch=switch, current_humidity=cur,
+                      target_humidity=target, mode=mode)
 
 
 # --- alarm_control_panel ---------------------------------------------------------
@@ -565,17 +571,9 @@ _ALARM_ACTION = {"arm_home": "home", "arm_away": "arm", "disarm": "disarmed", "t
 _ALARM_FEATURE = {"arm_home": 1, "arm_away": 2, "trigger": 8}
 
 
-def _utf16(raw: bytes | None) -> str | None:
-    """P-14 (deviate): core raises on undecodable payloads; the engine yields UNKNOWN."""
-    try:
-        return None if raw is None else raw.decode("utf-16be")
-    except UnicodeDecodeError:
-        return None
-
-
 @builder("alarm_control_panel", "ALARM")
 def alarm(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> EntityPlan | None:
-    mm = resolve(schema, DpRef(("master_mode",), (ENUM,), "function_first"))
+    mm = resolve(schema, DpRef(("master_mode",), (ENUM,), _FF))
     if mm is None:
         return None
     msg = resolve(schema, DpRef(("alarm_msg",), (RAW,)))
@@ -588,7 +586,7 @@ def alarm(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> EntityPla
         decided = False
         if st.get("master_state") == "alarm":
             enc = st.get("alarm_msg")
-            decoded = _utf16(codecs.b64_decode(enc)) if enc else None
+            decoded = _decode(codecs.b64_decode(enc), "utf-16be") if enc else None
             if not (enc and decoded and "Sensor Low Battery" in decoded):
                 state, decided = "triggered", True
         if not decided:
@@ -596,7 +594,7 @@ def alarm(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> EntityPla
             state = None if v is None else _ALARM_STATE.get(v)
         changed_by = None
         if msg is not None and st.get("master_state") == "alarm":
-            changed_by = _utf16(codecs.b64_decode(st.get(msg.code)))
+            changed_by = _decode(codecs.b64_decode(st.get(msg.code)), "utf-16be")
         return {"alarm_state": state, "changed_by": changed_by}
 
     def write(action, args, st):
@@ -622,14 +620,13 @@ VAC_FEATURES = {"PAUSE": 4, "STOP": 8, "RETURN_HOME": 16, "FAN_SPEED": 32, "SEND
 
 @builder("vacuum", "VACUUMS")
 def vacuum(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> EntityPlan | None:
-    F = "function_first"
-    charge = resolve(schema, DpRef(("switch_charge",), (BOOLEAN,), F))
-    locate = resolve(schema, DpRef(("seek",), (BOOLEAN,), F))
-    mode = resolve(schema, DpRef(("mode",), (ENUM,), F))
+    charge = resolve(schema, DpRef(("switch_charge",), (BOOLEAN,), _FF))
+    locate = resolve(schema, DpRef(("seek",), (BOOLEAN,), _FF))
+    mode = resolve(schema, DpRef(("mode",), (ENUM,), _FF))
     pause = resolve(schema, DpRef(("pause",), (BOOLEAN,)))
-    power = resolve(schema, DpRef(("power_go",), (BOOLEAN,), F))
+    power = resolve(schema, DpRef(("power_go",), (BOOLEAN,), _FF))
     status = resolve(schema, DpRef(("status",), (ENUM,)))
-    suction = resolve(schema, DpRef(("suction",), (ENUM,), F))
+    suction = resolve(schema, DpRef(("suction",), (ENUM,), _FF))
     activity_found = bool(pause or status)
 
     opts = []
@@ -655,13 +652,13 @@ def vacuum(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> EntityPl
 
     def read(st):
         act = None
-        sv = ops.validate_enum_read(status.spec, st.get(status.code)) if status else None
+        sv = _enum(status, st)
         if sv is not None:                       # present-but-unmapped => UNKNOWN; pause NOT consulted
             act = _VAC.get(sv)
         elif pause and ops.validate_bool_read(st.get(pause.code)):
             act = "paused"
         return {"activity": act if activity_found else None,
-                "fan_speed": ops.validate_enum_read(suction.spec, st.get(suction.code)) if suction else None}
+                "fan_speed": _enum(suction, st)}
 
     def write(action, args, st):
         if action == "locate" and locate:
@@ -688,16 +685,11 @@ def vacuum(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> EntityPl
             return [{"code": args["command"], "value": params[0]}]
         return []
 
-    roles = {k: v for k, v in (("switch_charge", charge), ("seek", locate), ("mode", mode), ("pause", pause),
-                               ("power_go", power), ("status", status), ("suction", suction)) if v}
-    return EntityPlan("vacuum", desc["key"], ident, roles, tuple(dict.fromkeys(v.code for v in roles.values())),
-                      read, write, update_all=True)
+    return _composite("vacuum", desc, ident, read, write, switch_charge=charge, seek=locate, mode=mode, pause=pause,
+                      power_go=power, status=status, suction=suction)
 
 
 # --- climate -----------------------------------------------------------------------
-import collections
-import json
-
 _C_ALIASES = {"°c", "c", "celsius", "℃"}
 _F_ALIASES = {"°f", "f", "fahrenheit", "℉"}
 _MODE_TO_HVAC = {"auto": "heat_cool", "cold": "cool", "freeze": "cool", "heat": "heat", "hot": "heat",
@@ -722,12 +714,11 @@ def _temp_convert(v, frm, to):
 
 @builder("climate", "CLIMATE_DESCRIPTIONS")
 def climate(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> EntityPlan | None:
-    F = "function_first"
     sys_unit = "°F" if env.temperature_unit == "F" else "°C"
     cur_c = resolve(schema, DpRef(("temp_current", "upper_temp"), (INTEGER,)))
     cur_f = resolve(schema, DpRef(("temp_current_f", "upper_temp_f"), (INTEGER,)))
-    set_c = resolve(schema, DpRef(("temp_set",), (INTEGER,), F))
-    set_f = resolve(schema, DpRef(("temp_set_f",), (INTEGER,), F))
+    set_c = resolve(schema, DpRef(("temp_set",), (INTEGER,), _FF))
+    set_f = resolve(schema, DpRef(("temp_set_f",), (INTEGER,), _FF))
     tuc = resolve(schema, DpRef(("temp_unit_convert",), (ENUM,)))
 
     # native unit per role (mutable copy; spec 6.4 step 1: empty unit <- temp_unit_convert raw, read ONCE)
@@ -759,19 +750,19 @@ def climate(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> EntityP
         u = units[id(r)]
         if not u:
             tv = schema.status.get("temp_unit_convert")
-            return {"c": "°C", "f": "°F"}.get(tv) if tv else None
+            return TEMP_CONVERT.get(tv) if tv else None
         u = u.lower()
         return "°C" if u in _C_ALIASES else "°F" if u in _F_ALIASES else None
 
     cur_unit, set_unit = native_temp_unit(cur), native_temp_unit(setp)
     hum_cur = resolve(schema, DpRef(("humidity_current",), (INTEGER,)))
-    fan_mode = resolve(schema, DpRef(("fan_speed_enum", "level", "windspeed"), (ENUM,), F))
-    mode = resolve(schema, DpRef(("mode",), (ENUM,), F))
-    switch = resolve(schema, DpRef(("switch", "power_switch"), (BOOLEAN,), F))
-    hum_set = resolve(schema, DpRef(("humidity_set",), (INTEGER,), F))
-    sw_on = resolve(schema, DpRef(("swing", "shake"), (BOOLEAN,), F))
-    sw_h = resolve(schema, DpRef(("switch_horizontal",), (BOOLEAN,), F))
-    sw_v = resolve(schema, DpRef(("switch_vertical",), (BOOLEAN,), F))
+    fan_mode = resolve(schema, DpRef(("fan_speed_enum", "level", "windspeed"), (ENUM,), _FF))
+    mode = resolve(schema, DpRef(("mode",), (ENUM,), _FF))
+    switch = resolve(schema, DpRef(("switch", "power_switch"), (BOOLEAN,), _FF))
+    hum_set = resolve(schema, DpRef(("humidity_set",), (INTEGER,), _FF))
+    sw_on = resolve(schema, DpRef(("swing", "shake"), (BOOLEAN,), _FF))
+    sw_h = resolve(schema, DpRef(("switch_horizontal",), (BOOLEAN,), _FF))
+    sw_v = resolve(schema, DpRef(("switch_vertical",), (BOOLEAN,), _FF))
 
     switch_only = desc["switch_only_hvac_mode"]
     filt = _filter_hvac(mode.spec.range) if mode else {}
@@ -784,9 +775,8 @@ def climate(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> EntityP
     ident["target_temperature_step"] = 1.0
     if setp:
         feats |= CLIMATE_FEATURES["TARGET_TEMPERATURE"]
-        s = setp.spec
-        ident.update(max_temp=ops.scale_value(s, s.max), min_temp=ops.scale_value(s, s.min),
-                     target_temperature_step=ops.scale_value(s, s.step))
+        lo, hi = ops.scaled_range(setp.spec)
+        ident.update(max_temp=hi, min_temp=lo, target_temperature_step=ops.scale_value(setp.spec, setp.spec.step))
     hvac_modes: list[str] = []
     if mode:
         hvac_modes = ["off"] + [m for m in hvac_opts if m != "off"]
@@ -800,14 +790,14 @@ def climate(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> EntityP
     ident["hvac_modes"] = hvac_modes
     if hum_set:
         feats |= CLIMATE_FEATURES["TARGET_HUMIDITY"]
-        ident["min_humidity"] = round(ops.scale_value(hum_set.spec, hum_set.spec.min))
-        ident["max_humidity"] = round(ops.scale_value(hum_set.spec, hum_set.spec.max))
+        lo, hi = ops.scaled_range(hum_set.spec)
+        ident["min_humidity"], ident["max_humidity"] = round(lo), round(hi)
     if fan_mode:
         feats |= CLIMATE_FEATURES["FAN_MODE"]
         ident["fan_modes"] = list(fan_mode.spec.range)
     if sw_on or sw_h or sw_v:
         feats |= CLIMATE_FEATURES["SWING_MODE"]
-        ident["swing_modes"] = ["off"] + (["on"] if sw_on else []) + (["horizontal"] if sw_h else []) + (["vertical"] if sw_v else [])
+        ident["swing_modes"] = ["off", *(m for m, r in (("on", sw_on), ("horizontal", sw_h), ("vertical", sw_v)) if r)]
     if switch:
         feats |= CLIMATE_FEATURES["TURN_OFF"] | CLIMATE_FEATURES["TURN_ON"]
     ident["supported_features"] = feats
@@ -818,12 +808,8 @@ def climate(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> EntityP
             v = _temp_convert(v, unit, tunit)
         return v
 
-    def rounded(role, st):
-        v = None if role is None else ops.validate_int_read(role.spec, st.get(role.code))
-        return None if v is None else round(v)
-
     def read(st):
-        sw = ops.validate_bool_read(st.get(switch.code)) if switch else None
+        sw = _bool(switch, st)
         if sw is False:
             hvac = "off"
         elif mode is None:
@@ -831,21 +817,19 @@ def climate(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> EntityP
         else:
             raw = ops.validate_enum_read(mode.spec, st.get(mode.code))
             hvac = _MODE_TO_HVAC.get(raw) if raw else None      # DefaultHVACModeWrapper: unfiltered map (P-02)
-        pr = ops.validate_enum_read(mode.spec, st.get(mode.code)) if mode else None
+        pr = _enum(mode, st)
         if pr not in preset_opts:
             pr = None
         swing = None
         if sw_on or sw_h or sw_v:
-            def b(r): return ops.validate_bool_read(st.get(r.code)) if r else None
-            if sw_on and b(sw_on):
+            if _bool(sw_on, st):
                 swing = "on"
             else:
-                h, v = b(sw_h), b(sw_v)
+                h, v = _bool(sw_h, st), _bool(sw_v, st)
                 swing = "both" if (h and v) else "horizontal" if h else "vertical" if v else "off"
         return {"hvac_mode": hvac, "current_temperature": temp(cur, cur_unit, st), "temperature": temp(setp, set_unit, st),
-                "current_humidity": rounded(hum_cur, st), "target_humidity": rounded(hum_set, st),
-                "fan_mode": ops.validate_enum_read(fan_mode.spec, st.get(fan_mode.code)) if fan_mode else None,
-                "preset_mode": pr, "swing_mode": swing}
+                "current_humidity": _rounded(hum_cur, st), "target_humidity": _rounded(hum_set, st),
+                "fan_mode": _enum(fan_mode, st), "preset_mode": pr, "swing_mode": swing}
 
     def write(action, args, st):
         if action == "set_hvac_mode":
@@ -880,12 +864,9 @@ def climate(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> EntityP
             return [{"code": switch.code, "value": action == "turn_on"}]
         raise KeyError(action)
 
-    roles = {k: v for k, v in (("cur_temp_c", cur_c), ("cur_temp_f", cur_f), ("set_temp_c", set_c), ("set_temp_f", set_f),
-                               ("unit_convert", tuc), ("cur_hum", hum_cur), ("fan", fan_mode), ("hvac_mode", mode),
-                               ("switch", switch), ("set_hum", hum_set), ("swing_on_off", sw_on), ("swing_h", sw_h),
-                               ("swing_v", sw_v)) if v}
-    return EntityPlan("climate", desc["key"], ident, roles, tuple(dict.fromkeys(v.code for v in roles.values())),
-                      read, write, update_all=True)
+    return _composite("climate", desc, ident, read, write, cur_temp_c=cur_c, cur_temp_f=cur_f, set_temp_c=set_c,
+                      set_temp_f=set_f, unit_convert=tuc, cur_hum=hum_cur, fan=fan_mode, hvac_mode=mode, switch=switch,
+                      set_hum=hum_set, swing_on_off=sw_on, swing_h=sw_h, swing_v=sw_v)
 
 
 # --- light -------------------------------------------------------------------------
@@ -909,23 +890,19 @@ def _filter_color_modes(modes: set[str]) -> set[str]:
 
 @builder("light", "LIGHTS")
 def light(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> EntityPlan | None:
-    F = "function_first"
-    switch = resolve(schema, DpRef((desc["key"],), (BOOLEAN,), F))
+    switch = resolve(schema, DpRef((desc["key"],), (BOOLEAN,), _FF))
     if switch is None:
         return None
-    bri = resolve(schema, DpRef(_codes(desc.get("brightness")), (INTEGER,), F)) if desc.get("brightness") else None
+    bri = _opt(schema, desc, "brightness", INTEGER)
     bmax = bmin = None
     if bri is not None:
-        bmax = resolve(schema, DpRef(_codes(desc.get("brightness_max")), (INTEGER,), F)) if desc.get("brightness_max") else None
-        bmin = resolve(schema, DpRef(_codes(desc.get("brightness_min")), (INTEGER,), F)) if desc.get("brightness_min") else None
-
-    def sc(spec, v):
-        return ops.scale_value(spec, v)
+        bmax = _opt(schema, desc, "brightness_max", INTEGER)
+        bmin = _opt(schema, desc, "brightness_min", INTEGER)
 
     def to255(role, st):
         """A limit dp's scaled value remapped onto 0..255, or None when unreadable."""
         v = ops.validate_int_read(role.spec, st.get(role.code))
-        return None if v is None else ops.remap(v, sc(role.spec, role.spec.min), sc(role.spec, role.spec.max), 0, 255)
+        return None if v is None else ops.remap(v, *ops.scaled_range(role.spec), 0, 255)
 
     def limits(st):
         if bri is None or bmax is None or bmin is None:
@@ -935,7 +912,7 @@ def light(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> EntityPla
 
     # colour data: JSON first, then hex String
     v2_mode = str(desc.get("fallback_color_data_mode", "")).endswith("V2")
-    cd = resolve(schema, DpRef(_codes(desc.get("color_data")), (JSON,), F)) if desc.get("color_data") else None
+    cd = _opt(schema, desc, "color_data", JSON)
     cd_kind = "json" if cd else None
     hsv = None
     if cd is not None:
@@ -944,14 +921,14 @@ def light(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> EntityPla
             hd, sd, vd = d.get("h", {"min": 0, "max": 360}), d.get("s", {"min": 0, "max": 255}), d.get("v", {"min": 0, "max": 255})
             hsv = ((hd["min"], hd["max"], 0, 360), (sd["min"], sd["max"], 0, 100), (vd["min"], vd["max"], 0, 255))
     else:
-        cd = resolve(schema, DpRef(_codes(desc.get("color_data")), (STRING,), F)) if desc.get("color_data") else None
+        cd = _opt(schema, desc, "color_data", STRING)
         cd_kind = "hex" if cd else None
     if cd is not None and hsv is None:
-        big = bri is not None and sc(bri.spec, bri.spec.max) > 255
+        big = bri is not None and ops.scale_value(bri.spec, bri.spec.max) > 255
         hsv = _HSV_V2 if (v2_mode or cd.code == "colour_data_v2" or big) else _HSV_V1
 
-    cm = resolve(schema, DpRef((desc["color_mode"],), (ENUM,), F)) if desc.get("color_mode") else None
-    ct = resolve(schema, DpRef(_codes(desc.get("color_temp")), (INTEGER,), F)) if desc.get("color_temp") else None
+    cm = _opt(schema, desc, "color_mode", ENUM)
+    ct = _opt(schema, desc, "color_temp", INTEGER)
 
     modes = {"onoff"}
     if bri:
@@ -978,7 +955,7 @@ def light(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> EntityPla
         v = ops.validate_int_read(bri.spec, st.get(bri.code))
         if v is None:
             return None
-        b = ops.remap(v, sc(bri.spec, bri.spec.min), sc(bri.spec, bri.spec.max), 0, 255)
+        b = ops.remap(v, *ops.scaled_range(bri.spec), 0, 255)
         lim = limits(st)
         if lim is not None:
             b = ops.remap(b, lim[0], lim[1], 0, 255)
@@ -1005,7 +982,7 @@ def light(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> EntityPla
         v = ops.validate_int_read(ct.spec, st.get(ct.code))
         if v is None:
             return None
-        m = ops.remap(v, sc(ct.spec, ct.spec.min), sc(ct.spec, ct.spec.max), 1e6 / MAX_KELVIN, 1e6 / MIN_KELVIN, reverse=True)
+        m = ops.remap(v, *ops.scaled_range(ct.spec), 1e6 / MAX_KELVIN, 1e6 / MIN_KELVIN, reverse=True)
         return round(1e6 / m)
 
     def color_mode(st):
@@ -1026,7 +1003,7 @@ def light(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> EntityPla
         lim = limits(st)
         if lim is not None:
             value = ops.remap(value, 0, 255, lim[0], lim[1])
-        return ops.validate_int_write(bri.spec, ops.remap(value, 0, 255, sc(bri.spec, bri.spec.min), sc(bri.spec, bri.spec.max)))
+        return ops.validate_int_write(bri.spec, ops.remap(value, 0, 255, *ops.scaled_range(bri.spec)))
 
     def hsv_write(hh, ss, vv):
         raw = [round(ops.remap(x, t0, t1, s0, s1)) for x, (s0, s1, t0, t1) in zip((hh, ss, vv), hsv)]
@@ -1042,8 +1019,8 @@ def light(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> EntityPla
             cmds.append({"code": cm.code, "value": ops.validate_enum_write(cm.spec, "white")})
         if ct is not None and "color_temp_kelvin" in args:
             k = args["color_temp_kelvin"]
-            cmds.append({"code": ct.code, "value": ops.validate_int_write(
-                ct.spec, ops.remap(1e6 / k, 1e6 / MAX_KELVIN, 1e6 / MIN_KELVIN, sc(ct.spec, ct.spec.min), sc(ct.spec, ct.spec.max), True))})
+            mired = ops.remap(1e6 / k, 1e6 / MAX_KELVIN, 1e6 / MIN_KELVIN, *ops.scaled_range(ct.spec), True)
+            cmds.append({"code": ct.code, "value": ops.validate_int_write(ct.spec, mired)})
         cur = read(st)
         if cd is not None and ("hs_color" in args or ("brightness" in args and cur["color_mode"] == "hs"
                                                        and "white" not in args and "color_temp_kelvin" not in args)):
@@ -1057,7 +1034,5 @@ def light(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> EntityPla
             cmds.append({"code": bri.code, "value": bri_write(b, st)})
         return cmds
 
-    roles = {k: v for k, v in (("switch", switch), ("brightness", bri), ("brightness_max", bmax), ("brightness_min", bmin),
-                               ("color_data", cd), ("work_mode", cm), ("color_temp", ct)) if v}
-    return EntityPlan("light", desc["key"], ident, roles, tuple(dict.fromkeys(v.code for v in roles.values())),
-                      read, write, update_all=True)
+    return _composite("light", desc, ident, read, write, switch=switch, brightness=bri, brightness_max=bmax,
+                      brightness_min=bmin, color_data=cd, work_mode=cm, color_temp=ct)

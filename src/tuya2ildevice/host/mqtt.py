@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 import logging
 from collections.abc import Callable
 
@@ -13,7 +12,7 @@ except ImportError as err:                   # the extra is not installed
     raise ImportError("MqttTransport needs paho-mqtt: pip install 'tuya2ildevice[host]'") from err
 
 from .memory import matches
-from .transport import Callback, Message, Unsubscribe
+from .transport import Callback, Message, Unsubscribe, deliver
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -31,6 +30,7 @@ class MqttTransport:
         self._subs: list[tuple[str, int, Callback]] = []
         self._loop: asyncio.AbstractEventLoop | None = None
         self._connected = asyncio.Event()
+        self._tasks: set[asyncio.Task] = set()
         self._client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=client_id or "")
         if username:
             self._client.username_pw_set(username, password)
@@ -100,8 +100,6 @@ class MqttTransport:
         for topic, _, callback in list(self._subs):
             if matches(topic, msg.topic):
                 try:
-                    result = callback(msg)
-                    if inspect.isawaitable(result):
-                        asyncio.ensure_future(result)
+                    deliver(callback, msg, self._tasks)
                 except Exception:  # a consumer's bug must not stop the client loop
                     _LOGGER.exception("handler for %s failed", msg.topic)

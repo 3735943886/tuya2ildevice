@@ -73,17 +73,18 @@ class CoverMotion(Converter):
     last command, not a move in progress).
     """
     OPTIONS = ("open", "closed", "opening", "closing", "stopped")
+    MOVING = ("opening", "closing")
+    CONFIG = frozenset({"command", "set_position", "position", "words", "invert", "settle"})
 
     def __init__(self, config: dict | None = None):
         c = config or {}
-        unknown = set(c) - {"command", "set_position", "position", "words", "invert", "settle"}
-        if unknown:
+        if unknown := set(c) - self.CONFIG:
             raise ValueError(f"cover_motion: unknown config {sorted(unknown)}")
         self.command = c.get("command", "control")
         self.set_position = c.get("set_position", "percent_control")
         self.position = c.get("position", "percent_state")
         self.words = {"open": "open", "close": "close", "stop": "stop", **(c.get("words") or {})}
-        self.invert = c.get("invert")
+        self.invert = bool(c.get("invert"))
         self.settle = float(c.get("settle") or 0)
         self.reset()
 
@@ -94,11 +95,11 @@ class CoverMotion(Converter):
     def props(self) -> dict[str, dict]:
         return {"cover_state": {"type": "select", "role": "cover_state", "options": list(self.OPTIONS)}}
 
-    def _open_pct(self, codes: dict, raw: Any) -> float | None:
+    def _open_pct(self, raw: Any) -> float | None:
+        """A position dp's value as 0 (closed) .. 100 (open), or None when it is not a number."""
         if isinstance(raw, bool) or not isinstance(raw, (int, float)):
             return None
-        inv = bool(self.invert)
-        return 100 - raw if inv else float(raw)
+        return float(100 - raw if self.invert else raw)
 
     def _out(self, codes: dict, state: str | None, timers: dict | None = None) -> Result:
         """`state` is the motion (opening / closing / stopped); at rest the value says which end, if any."""
@@ -107,12 +108,12 @@ class CoverMotion(Converter):
         self.state = state
         if state == "stopped":
             self.target = None
-            pos = self._open_pct(codes, codes.get(self.position))
+            pos = self._open_pct(codes.get(self.position))
             state = "stopped" if pos is None else "closed" if pos <= 0 else "open" if pos >= 100 else "stopped"
         return Result({"cover_state": state}, timers or {})
 
     def update(self, now, codes, changed, active) -> Result:
-        pos = self._open_pct(codes, codes.get(self.position))
+        pos = self._open_pct(codes.get(self.position))
         state: str | None = None
         timers: dict[str, float | None] = {}
         if not active:
@@ -128,24 +129,24 @@ class CoverMotion(Converter):
                 elif word == self.words["close"]:
                     state, self.target = "closing", 0.0
             elif self.set_position in changed and pos is not None:
-                tgt = self._open_pct(codes, codes.get(self.set_position))
+                tgt = self._open_pct(codes.get(self.set_position))
                 if tgt is not None:
                     self.target = tgt
                     state = "stopped" if tgt == pos else "opening" if tgt > pos else "closing"
-            elif self.position in changed and pos is not None and self.state in ("opening", "closing"):
+            elif self.position in changed and pos is not None and self.state in self.MOVING:
                 arrived = self.target is not None and (pos >= self.target if self.state == "opening" else pos <= self.target)
                 state = "stopped" if arrived else None
             elif self.position in changed and pos is not None:
                 state = "stopped"
             if pos is not None and ((pos <= 0 and (state or self.state) == "closing") or (pos >= 100 and (state or self.state) == "opening")):
                 state = "stopped"                   # at a hard end the motor cannot go further
-        moving = (state or self.state) in ("opening", "closing") and state != "stopped"
+        moving = (state or self.state) in self.MOVING and state != "stopped"
         if self.settle:
             timers["settle"] = self.settle if moving else None
         return self._out(codes, state, timers)
 
     def timer(self, now, name, codes) -> Result:
-        return self._out(codes, "stopped") if name == "settle" and self.state in ("opening", "closing") else Result()
+        return self._out(codes, "stopped") if name == "settle" and self.state in self.MOVING else Result()
 
 
 BUILTIN: dict[str, Callable[[dict], Converter]] = {"cover_motion": CoverMotion}

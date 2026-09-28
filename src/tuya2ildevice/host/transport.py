@@ -5,6 +5,8 @@ double). Nothing here knows about Tuya or IL.
 """
 from __future__ import annotations
 
+import asyncio
+import inspect
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Protocol
@@ -20,6 +22,16 @@ class Message:
 
 Callback = Callable[[Message], "Awaitable[None] | None"]
 Unsubscribe = Callable[[], None]
+
+
+def deliver(callback: Callback, msg: Message, tasks: set[asyncio.Task]) -> None:
+    """Call `callback(msg)`; an awaitable it returns runs as a task, held in `tasks` until done (the loop keeps only a
+    weak reference to a task)."""
+    result = callback(msg)
+    if inspect.isawaitable(result):
+        task = asyncio.ensure_future(result)
+        tasks.add(task)
+        task.add_done_callback(tasks.discard)
 
 
 class Transport(Protocol):

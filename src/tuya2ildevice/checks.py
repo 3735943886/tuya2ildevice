@@ -14,10 +14,15 @@ class Rejected(Exception):
         self.code, self.reason = code, reason
 
 
+def integral(v: float) -> float | int:
+    """An integral number as an int (C-2 / V-5): `20.0` is `20`."""
+    return int(v) if float(v).is_integer() else v
+
+
 def _number(v: Any) -> float | int:
     if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v):
         raise Rejected("invalid_value", f"not a finite number: {v!r}")
-    return int(v) if float(v).is_integer() else v      # C-2 / V-5
+    return integral(v)
 
 
 def _requires_ok(req: Any, state: dict[str, Any]) -> bool:

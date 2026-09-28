@@ -40,8 +40,7 @@ def _label(code: str) -> str:
 
 
 def _spec_of(schema: DeviceSchema, code: str, ci: dict) -> DpSpec:
-    return schema.status_range.get(code) or schema.function.get(code) or DpSpec(
-        code, ci.get("valueType") or STRING, ci.get("valueDesc") or None)
+    return schema.spec(code) or DpSpec(code, ci.get("valueType") or STRING, ci.get("valueDesc") or None)
 
 
 def unused_plans(schema: DeviceSchema, entries: dict[str, tuple[str, str, dict]], consumed: set[str]) -> list[EntityPlan]:
@@ -64,8 +63,7 @@ def unused_plans(schema: DeviceSchema, entries: dict[str, tuple[str, str, dict]]
         rw = code in schema.function
         r = ResolvedDp(code, parsed, kind, spec.report_type)
         ident: dict[str, Any] = {"label": _label(code), "entity_category": "config" if rw else "diagnostic"}
-        plan = _plan(code, kind, parsed, rw, r, ident)
-        if plan is not None:
+        if (plan := _plan(code, kind, parsed, rw, r, ident)) is not None:
             plans.append(plan)
     return plans
 
@@ -98,13 +96,10 @@ def _plan(code: str, kind: str, spec: Any, rw: bool, r: ResolvedDp, ident: dict)
                       lambda a, args, st: [{"code": code, "value": ops.validate_enum_write(spec, args["option"])}])
         ident.update(kind="enum", options=list(spec.range))
         return mk("sensor", lambda st: {"native_value": ops.validate_enum_read(spec, st.get(code))})
-    if kind == STRING:
+    if kind in (STRING, RAW, JSON):
         ident.update(kind="text", entity_category="diagnostic")   # opaque (schedules, blobs): never writable
         return mk("sensor", lambda st: {"native_value": _text(st.get(code))})
     if kind == BITMAP:
         ident.update(kind="integer", entity_category="diagnostic")
-        return mk("sensor", lambda st: {"native_value": st.get(code) if isinstance(st.get(code), int) else None})
-    if kind in (RAW, JSON):
-        ident.update(kind="text", entity_category="diagnostic")
-        return mk("sensor", lambda st: {"native_value": _text(st.get(code))})
+        return mk("sensor", lambda st: {"native_value": v if isinstance(v := st.get(code), int) else None})
     return None

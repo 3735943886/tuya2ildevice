@@ -31,6 +31,11 @@ def scale_value(spec: SpecInteger, v: int) -> float:
     return v / (10 ** spec.scale)
 
 
+def scaled_range(spec: SpecInteger) -> tuple[float, float]:
+    """(min, max) of an Integer dp, scaled."""
+    return scale_value(spec, spec.min), scale_value(spec, spec.max)
+
+
 def validate_int_read(spec: SpecInteger, raw: Any) -> float | None:
     # bool is an int subclass: passes (core parity); floats are rejected
     if isinstance(raw, int) and spec.min <= raw <= spec.max:
@@ -62,10 +67,9 @@ def remap_read(spec: SpecInteger, raw: Any, target_min: float, target_max: float
     v = validate_int_read(spec, raw)
     if v is None:
         return None
-    return round(remap(v, scale_value(spec, spec.min), scale_value(spec, spec.max), target_min, target_max, reverse))
+    return round(remap(v, *scaled_range(spec), target_min, target_max, reverse))
 
 
 def remap_write(spec: SpecInteger, value: Any, target_min: float, target_max: float, reverse: bool = False) -> int:
     """Inverse: remap(target -> scaled range) then validate_int write."""
-    return validate_int_write(
-        spec, remap(value, target_min, target_max, scale_value(spec, spec.min), scale_value(spec, spec.max), reverse))
+    return validate_int_write(spec, remap(value, target_min, target_max, *scaled_range(spec), reverse))

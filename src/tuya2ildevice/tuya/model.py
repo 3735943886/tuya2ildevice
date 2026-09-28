@@ -59,7 +59,8 @@ class DpSpec:
     values: Any = None           # dict | JSON str, verbatim
     report_type: str | None = None
 
-    def _values(self) -> dict | None:
+    def value_map(self) -> dict | None:
+        """`values` as a dict (it may come as a JSON string), or None when empty."""
         v = self.values
         if isinstance(v, str):
             v = json.loads(v) if v else None
@@ -70,7 +71,7 @@ class DpSpec:
         kind = normalize_type(self.type)
         if kind in (BOOLEAN, RAW, STRING):
             return object()
-        v = self._values()
+        v = self.value_map()
         if kind == JSON:
             return SpecJson(v or {})
         if not v:
@@ -100,6 +101,14 @@ class DeviceSchema:
     status: dict[str, Any] = field(default_factory=dict)
     type_overrides: dict[str, str] = field(default_factory=dict)
     dpmap: dict[int, str] = field(default_factory=dict)
+
+    def spec(self, code: str) -> DpSpec | None:
+        """The dp's spec: its `status_range` entry, else its `function` entry."""
+        return self.status_range.get(code) or self.function.get(code)
+
+    def has(self, code: str) -> bool:
+        """The device knows the dp code at all (function, status or status_range)."""
+        return code in self.function or code in self.status or code in self.status_range
 
 
 # --- 2 resolution -----------------------------------------------------------

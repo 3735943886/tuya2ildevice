@@ -7,22 +7,20 @@ page; tables/_tuya_standard_rules.json, the decisions) -- nothing about a catego
 from __future__ import annotations
 
 import functools
-import json
-import pathlib
 from typing import Any
 
-TABLES = pathlib.Path(__file__).parent / "tables"
+from . import load_json
 
 
 @functools.cache
 def categories() -> dict[str, str]:
     """Category code -> the name Tuya's standard gives it (`kg` -> "Switch")."""
-    return json.loads((TABLES / "_tuya_categories.json").read_text(encoding="utf-8"))["categories"]
+    return load_json("tables", "_tuya_categories.json")["categories"]
 
 
 @functools.cache
 def _rules() -> dict[str, Any]:
-    return json.loads((TABLES / "_tuya_standard_rules.json").read_text(encoding="utf-8"))
+    return load_json("tables", "_tuya_standard_rules.json")
 
 
 def switch_device_class(category: str, core_class: str | None) -> str | None:

@@ -2,20 +2,16 @@
 from __future__ import annotations
 
 import copy
-import json
-import pathlib
+import functools
 from typing import Any
 
+from . import load_json
 from .model import DeviceSchema, DpSpec
 
-_QUIRKS: dict[str, dict] | None = None
 
-
+@functools.cache
 def load_quirks() -> dict[str, dict]:
-    global _QUIRKS
-    if _QUIRKS is None:
-        _QUIRKS = json.loads((pathlib.Path(__file__).parent / "quirks" / "quirks.json").read_text())["quirks"]
-    return _QUIRKS
+    return load_json("quirks", "quirks.json")["quirks"]
 
 
 def quirk_for(product_id: str) -> dict | None:
@@ -84,7 +80,7 @@ def apply_status_quirk(quirk: dict | None, status: dict[str, Any]) -> dict[str, 
     for op in (quirk or {}).get("ops", []):
         if op["op"] != "MapInitialStatus":
             continue
-        mapping = {k: v for k, v in op["mapping"]}
+        mapping = dict(op["mapping"])
         raw = out.get(op["code"])
         try:
             if raw in mapping:                 # dict membership: hash equality, as core

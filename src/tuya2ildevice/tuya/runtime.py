@@ -1,16 +1,15 @@
 """classify / read / write (spec section 7). Platform builders register in `BUILDERS`."""
 from __future__ import annotations
 
-import json
-import pathlib
+import functools
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from . import standard
+from . import PACKAGE_DIR, load_json, standard
 from .model import DeviceSchema, ResolvedDp
 
-TABLES = pathlib.Path(__file__).parent / "tables"
+TABLES = PACKAGE_DIR / "tables"
 UNKNOWN = None  # R0.8: UNKNOWN == None
 
 
@@ -89,14 +88,9 @@ class Plan:
     entities: list[EntityPlan]
 
 
-_TABLE_CACHE: dict[str, dict] = {}
-
-
+@functools.cache
 def load_table(platform: str) -> dict:
-    if platform not in _TABLE_CACHE:
-        tables = json.loads((TABLES / f"{platform}.json").read_text())["tables"]
-        _TABLE_CACHE[platform] = standard.apply(platform, tables)
-    return _TABLE_CACHE[platform]
+    return standard.apply(platform, load_json("tables", f"{platform}.json")["tables"])
 
 
 def preload_tables() -> None:
