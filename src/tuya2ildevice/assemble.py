@@ -18,7 +18,7 @@ from typing import Any
 from .checks import integral
 from .tuya import ops
 from .tuya.platforms import COVER_FEATURES, VAC_FEATURES
-from .tuya.runtime import EntityPlan, StateSlot
+from .tuya.runtime import EntityPlan, StateSlot, WriteRejected
 
 IL_VERSION = 0
 UNSUPPORTED = {"camera"}
@@ -26,6 +26,7 @@ KINDS = {"alarm_control_panel": "alarm"}                          # engine platf
 HAZARDOUS_COVERS = {"garage", "gate", "door", "damper"}          # il.md S-1: motion of a hazardous device
 BUTTON_CLASSES = {"restart", "identify", "update"}
 CATEGORIES = ("config", "diagnostic")
+_HEX_COLOUR = re.compile(r"#[0-9a-fA-F]{6}")
 # (property, IL role, engine action) of a vacuum's triggers, each offered when the plan's features have it
 VACUUM_ACTIONS = (("start", "start", "start"), ("pause", "pause", "pause"),
                   ("return_home", "return_home", "return_to_base"), ("locate", "locate", "locate"),
@@ -96,6 +97,8 @@ def _to_hex(hs) -> str:
 
 
 def _from_hex(s: str) -> tuple[float, float]:
+    if not _HEX_COLOUR.fullmatch(s):
+        raise WriteRejected(f"not a #rrggbb colour: {s!r}")
     h, sat, _ = colorsys.rgb_to_hsv(*(int(s[i:i + 2], 16) / 255 for i in (1, 3, 5)))
     return h * 360, sat * 100
 

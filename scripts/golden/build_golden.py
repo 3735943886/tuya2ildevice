@@ -1,5 +1,10 @@
-import json, pathlib, re, collections
+import collections
+import json
+import pathlib
+import re
+
 from ambr import parse
+
 ROOT=pathlib.Path(__file__).parent.parent/'core/tests/components/tuya'
 fx=sorted(p.stem for p in (ROOT/'fixtures').glob('*.json'))
 dev_id={c:c.replace('_','')[::-1] for c in fx}

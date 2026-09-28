@@ -1,9 +1,14 @@
 """Dump HA's per-device-class allowed units -> src/tuya2ildevice/tuya/data/host_units.json (HostEnv.allowed_units, spec 5.3). Needs `homeassistant`.
 
 Usage: python gen_host_units.py <out.json>"""
-import json, sys, enum
-from homeassistant.components.sensor.const import DEVICE_CLASS_UNITS as S
+import enum
+import json
+import sys
+
 from homeassistant.components.number.const import DEVICE_CLASS_UNITS as N
+from homeassistant.components.sensor.const import DEVICE_CLASS_UNITS as S
+
+
 def conv(d):
     out = {}
     for dc, units in d.items():
@@ -13,4 +18,5 @@ def conv(d):
             else: vals.append(u)
         out[dc.value] = sorted(vals, key=lambda x: (x is None, str(x)))
     return out
-json.dump({"sensor": conv(S), "number": conv(N)}, open(sys.argv[1], "w"), indent=1, ensure_ascii=False)
+with open(sys.argv[1], "w", encoding="utf-8") as f:
+    json.dump({"sensor": conv(S), "number": conv(N)}, f, indent=1, ensure_ascii=False)

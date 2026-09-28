@@ -1,10 +1,14 @@
 """Dump post-quirk schemas (handlers 0.0.29 = oracle) for every fixture whose product_id has a quirk."""
-import json, sys, copy, pathlib
+import copy
+import json
+import pathlib
 from types import SimpleNamespace as NS
-from tuya_sharing import DeviceFunction, DeviceStatusRange
+
+import fixtures
 from tuya_device_handlers import TUYA_QUIRKS_REGISTRY as REG
 from tuya_device_handlers.devices import register_tuya_quirks
-import fixtures
+from tuya_sharing import DeviceFunction, DeviceStatusRange
+
 register_tuya_quirks(None)
 print('quirks registered:', len(REG._quirks))
 def mk(d):
@@ -21,13 +25,13 @@ def dump(o):
 out={}; changed=0
 for c in fixtures.all_codes():
     d=fixtures.load(c)
-    q=REG.get_quirk_for_device(SimpleNamespace(product_id=d['product_id'])) if False else REG._quirks.get(d['product_id'])
+    q=REG._quirks.get(d['product_id'])
     if not q: continue
     o=mk(d); before=dump(o)
     try: REG.initialise_device_quirk(o)
-    except Exception as e: out[c]={'error':repr(e)}; continue
+    except Exception as e: out[c]={'error':repr(e)}; continue  # noqa: BLE001  (the oracle records whatever the handlers raise)
     after=dump(o); changed+= before!=after
     out[c]={'before':before,'after':after,'quirk_file':pathlib.Path(q.quirk_file).name,
             'type_overrides':{}, 'has_type_information_cls':None}
-json.dump(out,open('quirk_golden.json','w'),indent=1,ensure_ascii=False,default=str)
+pathlib.Path('quirk_golden.json').write_text(json.dumps(out,indent=1,ensure_ascii=False,default=str),'utf-8')
 print('fixtures with quirk',len(out),'changed schema',changed,'errors',sum('error' in v for v in out.values()))

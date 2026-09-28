@@ -6,7 +6,11 @@ symbolically: DPCode.X / DeviceCategory.X -> their string values; other attribut
 (SwitchDeviceClass.OUTLET, EntityCategory.CONFIG...) -> "$Class.ATTR"; lambdas/calls that
 cannot be resolved -> {"$expr": source}. No code is executed. Hand edits are forbidden.
 """
-import ast, json, pathlib, sys
+import ast
+import json
+import pathlib
+import sys
+
 
 def enum_values(tree, cls):
     out={}
@@ -25,10 +29,11 @@ class Ev:
         mod=s.imports.get(c)
         if mod:
             try:
-                import importlib, enum
+                import enum
+                import importlib
                 v=getattr(getattr(importlib.import_module(mod),c),a)
                 return v.value if isinstance(v,enum.Enum) else v
-            except Exception: pass
+            except Exception: pass  # noqa: BLE001, S110  (best effort: an HA expression that will not evaluate stays symbolic)
         return f'${c}.{a}'
     def __call__(s,n):
         if isinstance(n,ast.Constant): return n.value
@@ -41,10 +46,11 @@ class Ev:
             if n.id in s.g: return s.g[n.id]
             if n.id in s.imports:
                 try:
-                    import importlib, enum
+                    import enum
+                    import importlib
                     v=getattr(importlib.import_module(s.imports[n.id]),n.id)
                     if isinstance(v,(str,int,float)): return v.value if isinstance(v,enum.Enum) else v
-                except Exception: pass
+                except Exception: pass  # noqa: BLE001, S110  (best effort: an HA expression that will not evaluate stays symbolic)
             return f'${n.id}'
         if isinstance(n,(ast.Tuple,ast.List)):
             out=[]
@@ -69,7 +75,7 @@ class Ev:
             finally: s.g=saved
         if isinstance(n,ast.Call):
             f=ast.unparse(n.func)
-            if f.endswith('Description') or f.endswith('Description'.lower()) or 'Description' in f:
+            if 'Description' in f or f.endswith('description'):
                 d={'$desc':f}
                 for i,a in enumerate(n.args): d[f'$arg{i}']=s(a)
                 for k in n.keywords: d[k.arg if k.arg else '**']=s(k.value)
@@ -115,7 +121,7 @@ def gen(core, out):
             if tgt is None: continue
             if isinstance(tgt,ast.Name) and isinstance(val,(ast.Dict,ast.Tuple,ast.List,ast.BinOp,ast.Call)):
                 try: v=ev(val)
-                except Exception as e: continue
+                except Exception: continue  # noqa: BLE001, S112  (best effort: a table that will not evaluate is skipped)
                 ev.g[tgt.id]=v
                 if isinstance(val,ast.Dict): tables[tgt.id]=v
             elif isinstance(tgt,ast.Subscript) and isinstance(tgt.value,ast.Name) and isinstance(val,ast.Subscript):

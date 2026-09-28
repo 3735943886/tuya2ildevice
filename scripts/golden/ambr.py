@@ -1,5 +1,9 @@
 """Minimal parser for syrupy AmberSerializer (.ambr) snapshot files -> plain JSON-able data."""
-import re, json, sys, pathlib
+import ast
+import json
+import pathlib
+import re
+import sys
 
 TOK = re.compile(r"""\s*(?:
  (?P<str>'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")
@@ -8,11 +12,11 @@ TOK = re.compile(r"""\s*(?:
 |(?P<num>-?\d+(?:\.\d+)?(?:e[+-]?\d+)?)
 |(?P<name>[A-Za-z_][A-Za-z_0-9.]*)
 |(?P<p>[()\[\]{},:])
-)""", re.X)
+)""", re.VERBOSE)
 
 def _unq(x):
-    try: return eval(x) if x[:1] in "'\"" else x
-    except Exception: return x
+    try: return ast.literal_eval(x) if x[:1] in "'\"" else x
+    except (ValueError, SyntaxError): return x
 
 class P:
     def __init__(s, text): s.t=text; s.i=0
@@ -28,7 +32,7 @@ class P:
         if k=='num': return float(v) if ('.' in v or 'e' in v) else int(v)
         if k=='any': return '<ANY>'
         if k=='enum':
-            m=re.match(r"<(.*?):\s*(.*)>$",v,re.S); return {'$enum':m.group(1).strip(),'v':_unq(m.group(2).strip())}
+            m=re.match(r"<(.*?):\s*(.*)>$",v,re.DOTALL); return {'$enum':m.group(1).strip(),'v':_unq(m.group(2).strip())}
         if k=='name':
             if v in('None','True','False'): return {'None':None,'True':True,'False':False}[v]
             if s.peek()==('p','('):  # Container(...)
@@ -46,7 +50,7 @@ class P:
                 a.append(s.val())
                 if s.peek()==('p',','): s.nxt()
             s.nxt(); return a
-        k,v=s.nxt()
+        _,v=s.nxt()
         if v=='{': r=s.mapping()
         elif v=='[': r=s.seq()
         elif v==close: return None
@@ -69,7 +73,7 @@ class P:
 def parse(path):
     txt=pathlib.Path(path).read_text()
     out={}
-    for blk in re.split(r"^# name: ", txt, flags=re.M)[1:]:
+    for blk in re.split(r"^# name: ", txt, flags=re.MULTILINE)[1:]:
         name,_,body=blk.partition("\n")
         body=body.split("\n# ---")[0]
         out[name.strip()]=P(body).val() if body.strip() else None

@@ -2,10 +2,13 @@
 
 Needs tuya-device-handlers (pinned) importable. Unknown `apply_when` callables / type-information
 classes fail LOUDLY so new handler releases cannot silently drift from the engine."""
-import json, sys, pathlib
+import json
+import pathlib
+import sys
+
+import tuya_device_handlers
 from tuya_device_handlers import TUYA_QUIRKS_REGISTRY as REG
 from tuya_device_handlers.devices import register_tuya_quirks
-import tuya_device_handlers
 
 # hand-mapped code hooks (spec: "3 code hooks"): callable name -> Cond over Status
 WHEN = {"_is_fahrenheit_variant": {"and": [{"is_int": {"status": "temp_set"}}, {"ge": [{"status": "temp_set"}, 450]}]}}

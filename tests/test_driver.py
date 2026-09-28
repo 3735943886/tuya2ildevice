@@ -133,6 +133,22 @@ def test_every_core_fixture_yields_a_valid_descriptor():
         assert "local_key" not in json.dumps(d.descriptor)
 
 
+def test_a_malformed_colour_is_rejected_not_raised():
+    """A `color` write that is not `#rrggbb` is an `invalid_value` Reject, as any value the engine refuses."""
+    import fixtures
+    seen = 0
+    for code in fixtures.all_codes():
+        d = TuyaDriver(fixtures.load(code))
+        if "color" not in d.descriptor["props"]:
+            continue
+        seen += 1
+        d.handle(0, Connected())
+        for bad in ("x", "#12", "#gggggg"):
+            (out,) = d.handle(1, Command("color", bad))
+            assert isinstance(out, Reject) and out.code == "invalid_value", (code, bad, out)
+    assert seen
+
+
 def test_unused_dps_get_properties_by_type():
     f = {"switch_1": fn("switch_1", "Boolean"), "countdown_1": fn("countdown_1", "Integer", unit="s", min=0, max=86400, scale=0, step=1),
          "mystery": fn("mystery", "Enum", range=["a", "b"]), "cycle_time": fn("cycle_time", "String")}
