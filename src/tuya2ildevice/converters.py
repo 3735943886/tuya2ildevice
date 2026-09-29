@@ -61,22 +61,30 @@ class CoverMotion(Converter):
     """`cover_state` (il.md: open / closed / opening / closing / stopped) of a curtain or blind that reports no motion
     of its own. At rest it is `closed` or `open` at an end and `stopped` part way (or with no position known).
 
-    Config (all optional):
-    ``command`` (default ``control``), ``set_position`` (``percent_control``), ``position`` (``percent_state``): dp codes;
-    ``words``: ``{"open": "open", "close": "close", "stop": "stop"}``, what the control dp carries;
-    ``invert``: count the position the other way (default false: the device's number, as the engine's `position`,
-    after any `remap`), so `cover_state` and `position` always agree;
-    ``settle``: seconds without a position report after which motion counts as stopped (default 0 = never).
+    The driver turns one on for every cover with a reported position and a separate target or a command
+    (``"cover": {"infer_motion": true}``, the default; the device's *Infer motion* switch), on the codes the cover
+    actually has. It sees the dps after the cover's settings and any `remap`, as the engine's `position` does, so
+    `cover_state` and `position` always agree.
 
-    A command word, or a set-position that differs from the current position, starts motion; a stop word, reaching
-    the target or an end, and any readback / snapshot settle it. A snapshot never starts motion (its dps describe the
-    last command, not a move in progress).
+    A move starts on a command word or on a target that differs from the current position; a stop word, reaching the
+    target or an end, and any readback / snapshot settle it. A snapshot never starts motion (its dps describe the last
+    command, not a move in progress). A command word only says that a move started: the position reports that follow
+    decide its direction, so a device that reports the opposite word still shows the way it really moves. A move
+    started by a target keeps comparing the target with the position.
+
+    Naming it in an override block (``{"converters": {"cover_motion": {...}}}``, deprecated: use the `cover`
+    settings) replaces the driver's own. Config (all optional):
+    ``command`` (default ``control``), ``set_position`` (``percent_control``), ``position`` (``percent_state``): dp codes
+    (null: the cover has none);
+    ``words``: ``{"open": "open", "close": "close", "stop": "stop"}``, what the control dp carries;
+    ``invert``: count the position the other way (default false);
+    ``settle``: seconds without a position report after which motion counts as stopped (default 0 = never).
     """
     OPTIONS = ("open", "closed", "opening", "closing", "stopped")
     MOVING = ("opening", "closing")
     CONFIG = frozenset({"command", "set_position", "position", "words", "invert", "settle"})
 
-    def __init__(self, config: dict | None = None):
+    def __init__(self, config: dict | None = None, *, prop: str = "cover_state", group: str | None = None):
         c = config or {}
         if unknown := set(c) - self.CONFIG:
             raise ValueError(f"cover_motion: unknown config {sorted(unknown)}")
@@ -86,14 +94,18 @@ class CoverMotion(Converter):
         self.words = {"open": "open", "close": "close", "stop": "stop", **(c.get("words") or {})}
         self.invert = bool(c.get("invert"))
         self.settle = float(c.get("settle") or 0)
+        self.prop, self.group = prop, group
         self.reset()
 
     def reset(self) -> None:
         self.state: str | None = None
         self.target: float | None = None           # where the current move should end (0 closed .. 100 open)
+        self.by_word = False                       # the move started on a command word: its direction is a guess
+        self.last: float | None = None             # the position last seen
 
     def props(self) -> dict[str, dict]:
-        return {"cover_state": {"type": "select", "role": "cover_state", "options": list(self.OPTIONS)}}
+        d = {"type": "select", "role": "cover_state", "options": list(self.OPTIONS)}
+        return {self.prop: {**d, "group": self.group} if self.group else d}
 
     def _open_pct(self, raw: Any) -> float | None:
         """A position dp's value as 0 (closed) .. 100 (open), or None when it is not a number."""
@@ -108,12 +120,16 @@ class CoverMotion(Converter):
         self.state = state
         if state == "stopped":
             self.target = None
+            self.by_word = False
             pos = self._open_pct(codes.get(self.position))
             state = "stopped" if pos is None else "closed" if pos <= 0 else "open" if pos >= 100 else "stopped"
-        return Result({"cover_state": state}, timers or {})
+        return Result({self.prop: state}, timers or {})
 
     def update(self, now, codes, changed, active) -> Result:
         pos = self._open_pct(codes.get(self.position))
+        last = self.last
+        if pos is not None:
+            self.last = pos
         state: str | None = None
         timers: dict[str, float | None] = {}
         if not active:
@@ -125,17 +141,23 @@ class CoverMotion(Converter):
                 if word == self.words["stop"]:
                     state = "stopped"
                 elif word == self.words["open"]:
-                    state, self.target = "opening", 100.0
+                    state, self.target, self.by_word = "opening", 100.0, True
                 elif word == self.words["close"]:
-                    state, self.target = "closing", 0.0
+                    state, self.target, self.by_word = "closing", 0.0, True
             elif self.set_position in changed and pos is not None:
                 tgt = self._open_pct(codes.get(self.set_position))
                 if tgt is not None:
-                    self.target = tgt
+                    self.target, self.by_word = tgt, False
                     state = "stopped" if tgt == pos else "opening" if tgt > pos else "closing"
             elif self.position in changed and pos is not None and self.state in self.MOVING:
-                arrived = self.target is not None and (pos >= self.target if self.state == "opening" else pos <= self.target)
-                state = "stopped" if arrived else None
+                if self.by_word and last is not None and pos != last:
+                    heading = "opening" if pos > last else "closing"       # where it really goes
+                    if heading != self.state:
+                        state, self.target = heading, 100.0 if heading == "opening" else 0.0
+                moving = state or self.state
+                arrived = self.target is not None and (pos >= self.target if moving == "opening" else pos <= self.target)
+                if arrived:
+                    state = "stopped"
             elif self.position in changed and pos is not None:
                 state = "stopped"
             if pos is not None and ((pos <= 0 and (state or self.state) == "closing") or (pos >= 100 and (state or self.state) == "opening")):

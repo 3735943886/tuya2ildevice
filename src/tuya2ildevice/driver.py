@@ -13,6 +13,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
+from . import covers as cv
 from . import overrides as ov
 from .assemble import UNSUPPORTED, Assembly, Binding, assemble
 from .checks import Rejected, check_command
@@ -30,6 +31,7 @@ from .io import (
     Reject,
     SendMessage,
     SetTimer,
+    SettingsChanged,
     Timer,
     Value,
 )
@@ -90,12 +92,16 @@ class TuyaDriver:
     `allow_hazardous`: also offer writes for a garage door or gate cover (il.md S-1); off by default.
     `converter_types`: extra named converters (``{name: factory(config) -> Converter}``, e.g. from a user's `.py`
     files) that an override block can name in `converters`, next to the built-in ones.
-    `use_quirks`: the built-in quirks; on by default."""
+    `use_quirks`: the built-in quirks; on by default.
+    `device_settings`: offer the device's settings (a cover's direction and motion, see `covers.py`) as configuration
+    switches; writing one sends nothing to the device and returns `SettingsChanged` with the device's settings block,
+    for the host to keep with its overrides. Off by default: a host with nowhere to keep them offers none."""
 
     def __init__(self, device: dict, *, env: HostEnv | None = None, use_quirks: bool = True,
                  dpmap: dict[str, str] | None = None, allow_hazardous: bool = False,
                  expose_unused: bool = False, overrides: dict | None = None,
-                 converters: dict | None = None, converter_types: dict | None = None):
+                 converters: dict | None = None, converter_types: dict | None = None,
+                 device_settings: bool = False):
         schema = schema_of(device)
         quirk = quirk_for(schema.product_id) if use_quirks else None
         if quirk:
@@ -103,6 +109,7 @@ class TuyaDriver:
             schema.status = apply_status_quirk(quirk, schema.status)
         types = {**BUILTIN, **(converter_types or {})}
         block = ov.find(overrides, device, types)
+        self.block = block
         local_strategy = device.get("local_strategy") or {}
         extra = {str(k): v for k, v in (dpmap or {}).items()}
         dpcodes = {**_str_keys(schema.dpmap), **extra, **Adapter.from_local_strategy(local_strategy).codes()}
@@ -111,20 +118,46 @@ class TuyaDriver:
         for dpid, code in {**_str_keys(schema.dpmap), **extra}.items():
             self.adapter.entries.setdefault(dpid, (code, "default", {}))
         ov.patch_adapter(self.adapter, block, removed, schema)
-        plans: list[EntityPlan] = []
-        if block.get("auto", True):
-            plans = classify(schema, env or default_env()).entities
-            if block.get("expose_unused", expose_unused):
-                used = {c for p in plans if p.platform not in UNSUPPORTED for c in p.depends_on}
-                plans += unused_plans(schema, self.adapter.entries, used)
-        self.assembly: Assembly = assemble(schema, plans, device_info(schema, quirk), allow_hazardous=allow_hazardous)
+        env = env or default_env()
+        info = device_info(schema, quirk)
+
+        def build(schema: DeviceSchema) -> Assembly:
+            plans: list[EntityPlan] = []
+            if block.get("auto", True):
+                plans = classify(schema, env).entities
+                if block.get("expose_unused", expose_unused):
+                    used = {c for p in plans if p.platform not in UNSUPPORTED for c in p.depends_on}
+                    plans += unused_plans(schema, self.adapter.entries, used)
+            return assemble(schema, plans, info, allow_hazardous=allow_hazardous)
+
+        self.assembly: Assembly = build(schema)
+        self.covers = cv.covers(self.assembly, block, infer_motion=device_settings)
+        if drop := cv.dropped(self.covers):             # `position_from_target`: classified again without them
+            schema = cv.without(schema, drop)
+            self.assembly = build(schema)
+            self.covers = cv.covers(self.assembly, block, infer_motion=device_settings)
+        cv.apply(self.covers, self.adapter, schema)
+        cv.warn(schema.id, cv.deprecated(block, self.covers))
+        self._factories: list = []
         self.converters: list[Converter] = self._make_converters(device, block, converters, types)
+        taken = {name for conv in self.converters for name in conv.props()}
+        # a converter of the user's owns the motion: the deprecated `cover_motion`, or one with the property's name
+        motion_taken = ("cover_motion" in (block.get("converters") or {})
+                        or any(c.part.prefix + "cover_state" in taken for c in self.covers))
+        if not motion_taken:
+            self.converters += [m for c in self.covers if (m := cv.motion(c)) is not None and m.prop not in taken]
         self._bind_converters()
+        self.switches: dict[str, tuple[cv.Cover, str]] = (
+            cv.switches(self.assembly, self.covers, motion_taken=motion_taken) if device_settings else {})
+        self._own_blocks = tuple(((overrides or {}).get(k) or {}) if k else {}
+                                 for k in (device.get("product_id"), device.get("id")))
         ov.patch_descriptor(self.assembly, block, schema)
+        self.switches = {k: v for k, v in self.switches.items() if k in self.assembly.descriptor["props"]}  # not hidden
         self.descriptor: dict = self.assembly.descriptor
         self.unsupported: list[str] = self.assembly.unsupported
         self.timers: set[str] = set()                # names of the timers the converters have set
         self._codes: dict[str, Any] = {}
+        self._dps: dict[str, Any] = {}               # the device's dps as last received, before any conversion
         self._values: dict[str, Any] = {}
         self._described = False
         self._linked = False
@@ -148,14 +181,16 @@ class TuyaDriver:
         return []
 
     # -- internals ------------------------------------------------------------
-    @staticmethod
-    def _make_converters(device: dict, block: dict, registered: dict | None, types: dict) -> list[Converter]:
+    def _make_converters(self, device: dict, block: dict, registered: dict | None, types: dict) -> list[Converter]:
         out: list[Converter] = []
         for key in (device.get("product_id"), device.get("id")):
             fs = (registered or {}).get(key) if key else None
-            out += [f(device) for f in (fs if isinstance(fs, (list, tuple)) else [fs] if fs else [])]
+            for f in fs if isinstance(fs, (list, tuple)) else [fs] if fs else []:
+                self._factories.append(f)
+                out.append(f(device))
         for name, cfg in (block.get("converters") or {}).items():
             try:
+                self._factories.append(types[name])
                 out.append(types[name](cfg))
             except ValueError as e:
                 raise ov.OverrideError(str(e)) from e
@@ -187,6 +222,21 @@ class TuyaDriver:
         """A first state has arrived (and no disconnect since)."""
         return self._synced
 
+    @property
+    def fingerprint(self) -> tuple:
+        """What makes two drivers of one device behave alike beyond their descriptor: the override block, the code
+        converters, the settings in effect (`Hub.reload` replaces a driver only when this or the descriptor changes)."""
+        return self.block, self._factories, [c.settings for c in self.covers]
+
+    @property
+    def dps(self) -> dict[str, Any]:
+        """The device's dps as last received (before any conversion); empty while not synced."""
+        return dict(self._dps)
+
+    def settings_block(self) -> dict:
+        """The device's settings block, as its switches leave it (see `covers.block`)."""
+        return cv.block(self.covers, *self._own_blocks)
+
     def describe(self, seed: Sequence[Any] = (), now: float = 0) -> list:
         """The descriptor, then what `seed` makes of the device: inputs the host already has for it (its link's state,
         a retained `state` snapshot), so a device already up goes out `available: true` with its values rather than
@@ -202,14 +252,19 @@ class TuyaDriver:
         if self._described:
             return []
         self._described = True
-        return [Descriptor(self.descriptor)]
+        outs: list = [Descriptor(self.descriptor)]
+        for prop, (cover, key) in self.switches.items():      # the producer's own: known with no device state
+            self._set(prop, cover.settings[key], outs)
+        return outs
 
     def _disconnect(self) -> list:
         self._linked = self._synced = False
         self._codes.clear()
-        outs: list = [Absent(prop) for prop in self._values if prop != "available"]
+        self._dps.clear()
+        kept = {p: v for p, v in self._values.items() if p in self.switches}
+        outs: list = [Absent(prop) for prop in self._values if prop != "available" and prop not in kept]
         outs.append(Value("available", False))
-        self._values = {"available": False}
+        self._values = {"available": False, **kept}
         for conv in self.converters:
             conv.reset()
         outs += [CancelTimer(n) for n in sorted(self.timers)]
@@ -230,6 +285,7 @@ class TuyaDriver:
         outs = self._describe()                     # R-2/R-3: a descriptor precedes the first value
         if not dps:
             return outs
+        self._dps.update(dps)
         new = self.adapter.read(dps)
         pushed = msg.channel == "active"
         moved = [c for c in new if self._codes.get(c, _MISSING) != new[c]]
@@ -307,6 +363,12 @@ class TuyaDriver:
             value = check_command(self.descriptor, self._values, cmd.prop, cmd.value)
         except Rejected as e:
             return [Reject(cmd.prop, e.code, e.reason)]
+        if cmd.prop in self.switches:                 # a setting: nothing goes to the device, the host saves it
+            cover, key = self.switches[cmd.prop]
+            cover.settings[key] = value
+            outs: list = []
+            self._set(cmd.prop, value, outs)
+            return [*outs, SettingsChanged(self.settings_block())]
         b = self.assembly.bindings.get(cmd.prop)
         if b is None or b.write is None:
             return [Reject(cmd.prop, "unsupported", "no write path")]

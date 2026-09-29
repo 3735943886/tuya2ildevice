@@ -5,11 +5,12 @@ following rustuya-manager's `tuyadevices.json` and a directory of user overrides
 """
 from .devices import DeviceWatcher, load_devices, parse_devices
 from .memory import InProcessTransport
-from .overrides import OverrideSet, OverrideWatcher, load_overrides
+from .overrides import SETTINGS_FILE, OverrideSet, OverrideWatcher, load_overrides
 from .runner import Runner, producer_running
 from .transport import Message, Transport
 
 __all__ = [
+    "SETTINGS_FILE",
     "DeviceWatcher",
     "InProcessTransport",
     "Message",

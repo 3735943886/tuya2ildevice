@@ -354,7 +354,7 @@ def cover(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> EntityPla
     if not (ikey in schema.function or ikey in schema.status_range):        # KeyPresent
         return None
     # Deliberate deviation from core: the position is the device's own number, never mirrored (core reverses it,
-    # by control_back_mode or always). A device that counts the other way gets `remap.invert` in its override.
+    # by control_back_mode or always). A device that counts the other way is set so by its `cover` settings (covers.py).
     cur = _opt(schema, desc, "current_position", INTEGER, "status_range_first")
     setp = _opt(schema, desc, "set_position", INTEGER)
     tilt = resolve(schema, DpRef(("angle_horizontal", "angle_vertical"), (INTEGER,), _FF))

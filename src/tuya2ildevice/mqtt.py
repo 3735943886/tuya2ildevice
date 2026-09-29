@@ -30,6 +30,7 @@ from .io import (
     Reject,
     SendMessage,
     SetTimer,
+    SettingsChanged,
     Timer,
     Value,
 )
@@ -74,6 +75,15 @@ class BridgeCommand:
     device_id: str
     action: str                            # "get" | "set"
     dps: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class SaveSettings:
+    """Ask the host to keep `block` as device `device_id`'s settings (its override block in the host's settings file,
+    replacing the one there; an empty block removes it) and to reload the overrides with it. Nothing is sent to the
+    device: a setting written through IL (`Hub(device_settings=True)`) is the producer's own."""
+    device_id: str
+    block: dict
 
 
 # --- il-mqtt.md side -------------------------------------------------------------------------------
@@ -141,6 +151,9 @@ class Hub:
     `on_bridge_message` / `on_il` and execute the returned outputs. `now` is whatever clock the host reads."""
 
     def __init__(self, devices: list[dict], *, il: IlTopics | None = None, **driver_kwargs: Any):
+        """`driver_kwargs` go to every `TuyaDriver`: `allow_hazardous`, `expose_unused`, `use_quirks`, `overrides`,
+        `converters`, `converter_types`, and `device_settings` (offer the devices' settings as configuration switches,
+        which come back as `SaveSettings`; off by default, for a host with nowhere to keep them)."""
         self.il = il or IlTopics()
         self._devices = {d["id"]: d for d in devices}
         self._kw = driver_kwargs
@@ -204,20 +217,24 @@ class Hub:
     def reload(self, overrides: dict | None, converters: dict | None = None,
                converter_types: dict | None = None) -> list:
         """Apply new user overrides (see overrides.py), and with them new code converters (`converters` by product or
-        device id, `converter_types` by name; each left as it was when None). A device whose descriptor changed gets a
-        fresh driver: its removed properties are cleared (M-11), the new descriptor is published, and the bridge is
-        asked for its state again. Raises `OverrideError` (changing nothing) if the overrides are invalid."""
+        device id, `converter_types` by name; each left as it was when None). A device whose descriptor, override
+        block, code converters or settings changed gets a fresh driver: its removed properties are cleared (M-11), the
+        new descriptor is published, and its values are worked out again from the dps the old driver last had (so a
+        changed setting shows at once); a device linked with no state yet is asked for it. Raises `OverrideError`
+        (changing nothing) if the overrides are invalid."""
         kw = {**self._kw, "overrides": overrides}
         kw.update({k: v for k, v in (("converters", converters), ("converter_types", converter_types)) if v is not None})
         fresh = {i: TuyaDriver(d, **kw) for i, d in self._devices.items()}          # all or nothing
         pubs: list = []
         for i, new in fresh.items():
             old = self.drivers[i]
-            if new.descriptor == old.descriptor and not (old.timers or new.converters):
+            if new.descriptor == old.descriptor and new.fingerprint == old.fingerprint:
                 continue
-            pubs += self._replace(i, old, new)
-            if old.linked:
-                new.handle(0, Connected())
+            seed: list = [Connected()] if old.linked else []
+            if old.synced:
+                seed.append(Message("state", old.dps))
+            pubs += self._replace(i, old, new, seed)
+            if old.linked and not old.synced:
                 pubs.append(BridgeCommand(i, "get"))
         self._kw = kw
         return pubs
@@ -276,7 +293,7 @@ class Hub:
     def _il_pubs(self, id: str, outs: list) -> list:
         return [p for o in outs if (p := self._il_pub(id, o)) is not None]
 
-    def _il_pub(self, id: str, o: Any) -> Publish | Schedule | Unschedule | BridgeCommand | None:
+    def _il_pub(self, id: str, o: Any) -> Publish | Schedule | Unschedule | BridgeCommand | SaveSettings | None:
         match o:
             case Descriptor(desc):
                 desc = {**desc, "source": self.il.source}            # M-12: the presence topic's `<source>`
@@ -296,4 +313,6 @@ class Hub:
                 return Unschedule(id, name)
             case SendMessage("set", payload):
                 return BridgeCommand(id, "set", payload["dps"])
+            case SettingsChanged(block):
+                return SaveSettings(id, block)
         return None

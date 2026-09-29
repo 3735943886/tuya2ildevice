@@ -29,7 +29,7 @@ d.handle(now, Command("switch_1", "off"))    # -> [SendMessage("set", {"dps": {"
 - `Command(prop, value)` is checked as il.md section 5 says before anything is sent; failures come back as `Reject`.
   Values convert as in Home Assistant core (brightness goes through 0..255), so a written value can differ slightly
   from what is read back. A cover's position is the device's own number, never mirrored (core mirrors it); a device
-  that counts the other way gets `remap.invert`.
+  that counts the other way is set so by its cover settings (below).
 - A `passive` report (a live one: the host drops retained ones) that changes a value is the device's own push, like
   `active`: converters see it as live; one that changes nothing is a readback. Events fire only from `active`. `state`, the bridge's
   merged view of what `active` / `passive` carried, is a snapshot: the first one after a connect sets everything, a
@@ -60,11 +60,11 @@ Details and the block format are in [overrides.py](src/tuya2ildevice/overrides.p
                "101": {"code": "control"}},
     "remove": ["percent_state"],
     "category": "cl",
-    "remap":  {"control": {"alias": {"on": "open", "off": "close", "pause": "stop"}},
-               "percent_control": {"invert": true}},
+    "remap":  {"control": {"alias": {"on": "open", "off": "close", "pause": "stop"}}},
+    "cover":  {"invert_position": true, "settle": 5},
     "props":  {"countdown_1": {"label": "Timer", "category": "config", "rw": false}},
     "device": {"model": "Sliding Window Opener"},
-    "converters": {"cover_motion": {"settle": 5}},
+    "converters": {"glow": {"on": "bright"}},
     "expose_unused": true } }
 ```
 
@@ -75,7 +75,8 @@ Details and the block format are in [overrides.py](src/tuya2ildevice/overrides.p
 | `remove` | a dp that should not be used (the tables then fall back, e.g. position read from the target) |
 | `category` | the Tuya category the tables are chosen by |
 | `remap.<code>.alias` | other words: device value -> standard value, both ways (an Enum's range is translated too) |
-| `remap.<code>.invert` | the other direction: a Boolean negated, an Integer mirrored in its range |
+| `remap.<code>.invert` | the other direction: a Boolean negated, an Integer mirrored in its range (not for a cover's position or command: use `cover`) |
+| `cover` | a cover's direction and motion (below) |
 | `props`, `device` | the finished descriptor: label, class, category, unit, role, read only, hidden; device kind/class/label/model |
 | `props.<name>` with a `src` | a property defined from a dp (below), replacing one of that name |
 | `converters` | code converters by name (below) |
@@ -100,8 +101,50 @@ Its `type` follows the dp's (Boolean `binary`, Integer `number`, Enum `select`, 
 `max`, `step`, `unit` and `options` come from the dp unless given; it is writable when the dp is in `function` (`rw:
 false` makes it read only); a `trigger` writes its `send` value. Values go through `remap` like any other.
 
-Unknown keys raise `OverrideError`. `Hub.reload(mapping)` applies new overrides live: republishes changed descriptors
-and clears removed properties.
+Unknown keys raise `OverrideError`. `Hub.reload(mapping)` applies new overrides live: republishes changed descriptors,
+clears removed properties, and works a changed device's values out again from the dps it last had.
+
+### Cover settings
+
+Which way a cover's position and commands run, and whether its motion is inferred, are the cover's settings, not
+`remap`: a curtain whose direction is wrong is fixed from its own configuration switches. `Hub(devices,
+device_settings=True)` (a host with somewhere to keep them) offers each switch only where it changes something:
+
+| switch (property) | label | offered when the cover has | does |
+|---|---|---|---|
+| `cover_invert_position` | Invert current position | a reported position (`current_position`) | reads it the other way, 0..100; with one dp for position and target, writes it the other way too |
+| `cover_invert_set_position` | Invert target position | a target (`set_position`) that is another dp | writes the target, and reads it back, the other way |
+| `cover_invert_control` | Invert control | a command dp (`control`) and no target | swaps open and close (`FZ` / `ZZ` on the special command; a Boolean negated) |
+| `cover_infer_motion` | Infer motion | a reported position, and a target that is another dp or a command | `cover_state` (open / closed / opening / closing / stopped) from the position |
+
+A cover with a target opens and closes by writing it (100 / 0), and its command dp only stops it: it has no *Invert
+control*. The switches are `binary`, `rw`, `category: config`, and show the settings in effect; a hazardous cover's
+(garage, gate, ...) are read only unless `allow_hazardous`. A later cover of the device (`control_2`, ...) has its own,
+named by its group (`control_2_cover_invert_position`).
+
+Writing a switch sends nothing to the device: the driver answers with the value and `SettingsChanged(block)`, and the
+Hub with `SaveSettings(device_id, block)`, the device's whole settings block (e.g. `{"cover": {"invert_position":
+true}}`) for the host to keep. `tuya2ildevice.host` keeps it in `zz_settings.json` (`host.SETTINGS_FILE`) in the
+overrides directory (`Runner(..., on_settings=watcher.save_settings)`), which then reloads at once.
+
+The same settings are a `cover` block in any override file, where a product's block is the starting point for its
+devices and a device's (the switches write the device's) wins:
+
+| key | default | |
+|---|---|---|
+| `invert_position` | `false` | as the switch |
+| `invert_set_position` | `false` | as the switch |
+| `invert_control` | `false` | as the switch |
+| `infer_motion` | `device_settings` | as the switch; a host that offers no switches infers no motion unless a block turns it on |
+| `settle` | `0` | seconds without a position report after which a move counts as stopped (0: never) |
+| `invert_tilt` | `false` | the tilt the other way |
+| `position_from_target` | `false` | the reported position dp is left out and the target read as the position |
+
+A later cover's keys go in an object under its group's name: `{"cover": {"invert_position": true, "control_2":
+{"invert_position": true}}}`. An inversion is laid over the dp's `remap` (a `remap.invert` still there cancels it), and
+the swap is composed with the dp's `remap.alias`, so a device that says `on` / `off` / `pause` keeps its alias.
+`remap.<code>.invert` on a cover's position or command dp and `converters.cover_motion` still work, and log that they
+are deprecated: move them to `cover`.
 
 The package carries no block for any product or device. A fix for a model goes in a converters file: the user's own,
 or the [override pack](pack/README.md), which hosts copy into that directory.
@@ -124,10 +167,11 @@ TuyaDriver(device, converters={"<product_id or device id>": [lambda device: MyCo
 TuyaDriver(device, converter_types={"my": MyConverter}, overrides={"<product_id>": {"converters": {"my": {}}}})
 ```
 
-Built-in ones are named in an override block: `{"<product_id>": {"converters": {"cover_motion": {"settle": 5}}}}`.
-`cover_motion` derives the cover's `cover_state` role (open / closed / opening /
-closing / stopped) from the control, set-position and position dps; a snapshot never starts motion. Timers come out as `SetTimer` (driver) or
-`Schedule` (`Hub`); the host calls back with `Timer` / `hub.on_timer(now, id, name)`.
+The built-in `CoverMotion` gives a cover its `cover_state` role (open / closed / opening / closing / stopped); the
+cover settings turn it on (`infer_motion`) on the dps the cover actually has, after its inversions. A command word
+only says a move started, the position reports after it decide which way; a snapshot never starts motion. Naming it
+in a block (`{"converters": {"cover_motion": {...}}}`) still works, deprecated. Timers come out as `SetTimer` (driver)
+or `Schedule` (`Hub`); the host calls back with `Timer` / `hub.on_timer(now, id, name)`.
 
 ## Overrides as files
 
@@ -137,6 +181,10 @@ closing / stopped) from the control, set-position and position dps; a snapshot n
 - `*.json`: override mappings, deep-merged in filename order (`99_local.json` refines `10_base.json`).
 - `*.py`: define `CONVERTERS = {"name": factory}`; an override block turns one on by name. The code runs in-process.
 - A bad file is reported and left out; the rest still loads. Overrides the Hub refuses leave the ones in effect.
+- `zz_settings.json` (`SETTINGS_FILE`, loaded last) holds the settings written through IL, a block per device:
+  `await watcher.save_settings(device_id, block)` replaces the device's (an empty block removes it), writes the file
+  atomically and reloads at once. Keep your own overrides in other files; with one `.json` file instead of a directory
+  nothing is saved.
 
 ### The override pack
 
@@ -146,7 +194,7 @@ loads them like the user's own (rustuya-local does this at start and daily, unle
 against the manifest's SHA-256, and `sync` only writes or removes the files it put there, as recorded in
 `.tuya2ildevice_pack.json`. A user's file with the same name, or a pack file the user has edited, is left alone. A
 manifest entry can be limited to a range of tuya2ildevice versions (`pack.LEVEL`). `.py` pack files run in the host's
-process, like the user's own files.
+process, like the user's own files. The pack never writes `zz_settings.json`.
 
 ## tuya2ildevice <-> an IL host over MQTT
 
@@ -182,6 +230,7 @@ stale presence whose Last Will never reached the broker, or a producer on tuya2i
 |---|---|
 | bridge -> hub | `runner.on_bridge_message(device_id, Connected() / Disconnected() / Message(channel, {dp: value}))` |
 | hub -> bridge | `BridgeCommand(device_id, "set"/"get", dps)` via `on_bridge_command` (a `get` after a live connect, or for a device with no state yet; none when its retained snapshot is there) |
+| hub -> host | `SaveSettings(device_id, block)` via `on_settings` (a sync function, or a coroutine function run as a task that `drain()` waits for) |
 | hub -> IL host | il-mqtt.md: retained `il/<id>` and `il/<id>/<prop>`; events and `il/<id>/reject` not retained; `il/_producer/tuya` presence |
 | IL host -> hub | `il/<id>/<prop>/set` (retained writes ignored) |
 
@@ -215,7 +264,7 @@ tests apply the same file to core's expectations, and each such difference is a 
 `docs/engine-spec.md` (P-28).
 
 A second one: a cover's position is not mirrored. The bridge shows the device's number and so does the IL; an
-installation inverts a device that counts the other way itself (`remap.invert`). The golden tests mirror core's
+installation inverts a device that counts the other way itself (its cover settings). The golden tests mirror core's
 expected position and position writes where core mirrored them (`core_reverses` in `tests/test_golden.py`).
 
 ## Tests

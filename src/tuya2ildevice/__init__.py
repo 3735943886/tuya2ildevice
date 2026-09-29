@@ -13,19 +13,29 @@ from .checks import Rejected, check_command
 from .converters import Converter, CoverMotion, Result
 from .driver import TuyaDriver, default_env, descriptor_of, schema_of
 from .io import (
-                 Absent,
-                 Command,
-                 Connected,
-                 Descriptor,
-                 Disconnected,
-                 Event,
-                 Message,
-                 Reject,
-                 SendMessage,
-                 Timer,
-                 Value,
+    Absent,
+    Command,
+    Connected,
+    Descriptor,
+    Disconnected,
+    Event,
+    Message,
+    Reject,
+    SendMessage,
+    SettingsChanged,
+    Timer,
+    Value,
 )
-from .mqtt import BridgeCommand, Hub, IlTopics, Publish, Schedule, Subscribe, Unschedule
+from .mqtt import (
+    BridgeCommand,
+    Hub,
+    IlTopics,
+    Publish,
+    SaveSettings,
+    Schedule,
+    Subscribe,
+    Unschedule,
+)
 from .overrides import OverrideError, merge_all
 
 
@@ -58,8 +68,10 @@ __all__ = [
     "Reject",
     "Rejected",
     "Result",
+    "SaveSettings",
     "Schedule",
     "SendMessage",
+    "SettingsChanged",
     "Subscribe",
     "Timer",
     "TuyaDriver",

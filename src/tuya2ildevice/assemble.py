@@ -44,10 +44,21 @@ class Binding:
 
 
 @dataclass
+class CoverPart:
+    """A cover of the device: its plan, the prefix of its property names ("" for the device's own kind, else its
+    group's name and "_"), its group (None for the device's own kind) and whether its motion is withheld (S-1)."""
+    plan: EntityPlan
+    prefix: str
+    group: str | None
+    hazardous: bool
+
+
+@dataclass
 class Assembly:
     descriptor: dict
     bindings: dict[str, Binding]
     unsupported: list[str] = field(default_factory=list)
+    covers: list[CoverPart] = field(default_factory=list)
 
 
 def _unit(ident: dict) -> str | None:
@@ -111,6 +122,7 @@ class _Builder:
         self.kind: str | None = None
         self.klass: str | None = None
         self.unsupported: list[str] = []
+        self.covers: list[CoverPart] = []
         self.allow_hazardous = allow_hazardous
 
     def name(self, base: str) -> str:
@@ -215,6 +227,7 @@ def _light(b: _Builder, plan: EntityPlan) -> None:
 def _cover(b: _Builder, plan: EntityPlan) -> None:
     hazardous = plan.identity.get("device_class") in HAZARDOUS_COVERS and not b.allow_hazardous
     pre, g = b.composite(plan)
+    b.covers.append(CoverPart(plan, pre, g.get("group"), hazardous))
     feats, r = plan.identity["supported_features"], plan.roles
     if "set_position" in r or "current_position" in r:
         rw = "set_position" in r and not hazardous
@@ -400,4 +413,4 @@ def assemble(schema, plans: list[EntityPlan], device_info: dict[str, Any], *, al
     desc["identifiers"] = {"tuya_id": schema.id, **({"tuya_product_id": schema.product_id} if schema.product_id else {})}
     if b.groups:
         desc["groups"] = b.groups
-    return Assembly(desc, b.bindings, b.unsupported)
+    return Assembly(desc, b.bindings, b.unsupported, b.covers)

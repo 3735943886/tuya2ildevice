@@ -13,8 +13,10 @@ product's, and both win over the built-in quirks). A block:
                  "open": {"src": "percent_control", "type": "trigger", "role": "open", "send": 100}},
       "device": {"kind": "cover", "class": "window", "label": "...", "vendor": "...", "model": "..."},
       "remap":  {"control": {"alias": {"on": "open", "off": "close", "pause": "stop"}},
-                 "percent_state": {"invert": true}},
-      "converters": {"cover_motion": {"settle": 5}},   # code converters by name (converters.py, or the host's)
+                 "fault_flag": {"invert": true}},
+      "cover":  {"invert_position": false, "invert_set_position": false, "invert_control": false,
+                 "infer_motion": true, "settle": 0, "invert_tilt": false, "position_from_target": false},
+      "converters": {"glow": {...}},                   # code converters by name (converters.py, or the host's)
       "expose_unused": true,                           # this device only: every dp no table claims gets a property
       "auto": false                                    # no property from the tables: only what `props` defines
     }
@@ -24,7 +26,12 @@ A `dp` entry with only a `code` renames a dp the device already has (its Tuya ty
 the usual fix for a dp the cloud gave a non-standard code. `remap` fixes the values of a dp (by its code, after any
 rename) that uses other words or the other direction than the tables expect: `alias` maps the device's value to the
 standard one (both ways; an Enum's range is translated too), `invert` negates a Boolean or mirrors an Integer in its
-range.
+range (on a cover's position or command dp it still works but is deprecated, as is `converters.cover_motion`: the
+`cover` settings do both).
+`cover` sets a cover's direction and motion (see `covers.py`): the first four keys are also the device's own
+configuration switches (`cover_invert_position`, ...; `Hub(device_settings=True)`), which save what they are set to as
+the device's block. For a device with several covers, a later cover's settings go in an object under its group's
+name: ``{"cover": {"invert_position": true, "control_2": {"invert_position": true}}}``.
 `props` and `device` patch the finished descriptor; `props` keys are property names as `descriptor_of` shows them.
 A `props` entry with a `src` (a dp code, after any rename) defines the property instead, replacing one of that name:
 its `type` follows the dp's (Boolean binary, Integer number, Enum select, others text) unless given, `min`/`max`/`step`,
@@ -58,7 +65,10 @@ from .tuya.model import (
 from .tuya.quirks import apply_quirk
 from .tuya.runtime import EntityPlan
 
-_BLOCK = {"dp", "remove", "category", "props", "device", "converters", "remap", "expose_unused", "auto"}
+_BLOCK = {"dp", "remove", "category", "props", "device", "converters", "remap", "expose_unused", "auto", "cover"}
+# a cover's settings (`cover`) and their defaults; the first four are also the device's switches (covers.py)
+COVER_DEFAULTS = {"invert_position": False, "invert_set_position": False, "invert_control": False, "infer_motion": True,
+                  "settle": 0, "invert_tilt": False, "position_from_target": False}
 _DP = {"code", "type", "values", "mode", "report_type"}
 _REMAP = {"alias", "invert"}
 _PATCH_FIELDS = ("label", "class", "category", "unit", "series", "role")     # copied as given; null clears
@@ -153,6 +163,8 @@ def validate(block: dict, where: str = "override", converter_types=None) -> dict
             raise OverrideError(f"{where}.remap.{code}.alias: two device values map to the same standard value")
         if not isinstance(r.get("invert", False), bool):
             raise OverrideError(f"{where}.remap.{code}.invert: true or false")
+    if "cover" in block:
+        _cover_settings(block["cover"], f"{where}.cover", nested=True)
     known = set(BUILTIN_CONVERTERS) | set(converter_types or ())
     for name, cfg in (block.get("converters") or {}).items():
         if name not in known:
@@ -160,6 +172,34 @@ def validate(block: dict, where: str = "override", converter_types=None) -> dict
         if not isinstance(cfg, dict):
             raise OverrideError(f"{where}.converters.{name}: the config must be an object")
     return block
+
+
+def _cover_settings(c: dict, where: str, nested: bool) -> None:
+    """A `cover` block: the settings, and (at the top) a later cover's settings under its group's name."""
+    if not isinstance(c, dict):
+        raise OverrideError(f"{where}: must be an object")
+    for k, v in c.items():
+        if k == "settle":
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or v < 0:
+                raise OverrideError(f"{where}.settle: seconds, 0 or more")
+        elif k in COVER_DEFAULTS:
+            if not isinstance(v, bool):
+                raise OverrideError(f"{where}.{k}: true or false")
+        elif nested and isinstance(v, dict):
+            _cover_settings(v, f"{where}.{k}", nested=False)
+        else:
+            raise OverrideError(f"{where}: unknown key {k!r}; allowed {sorted(COVER_DEFAULTS)}"
+                                + (" or a cover group's name with an object of those" if nested else ""))
+
+
+def int_bounds(schema: DeviceSchema | None, code: str) -> tuple[float, float] | None:
+    """An Integer dp's raw range, which `Remap.invert` mirrors inside."""
+    spec = schema.spec(code) if schema else None
+    if spec is not None and normalize_type(spec.type) == INTEGER:
+        v = spec.value_map() or {}
+        if "min" in v and "max" in v:
+            return v["min"], v["max"]
+    return None
 
 
 def find(mapping: dict | None, device: dict, converter_types=None) -> dict:
@@ -234,13 +274,7 @@ def patch_adapter(adapter, block: dict, removed: set[str], schema: DeviceSchema 
     for dpid in [k for k, e in adapter.entries.items() if e[0] in removed]:
         del adapter.entries[dpid]
     for code, r in (block.get("remap") or {}).items():
-        bounds = None
-        spec = schema.spec(code) if schema else None
-        if spec is not None and normalize_type(spec.type) == INTEGER:
-            v = spec.value_map() or {}
-            if "min" in v and "max" in v:
-                bounds = (v["min"], v["max"])
-        adapter.remaps[code] = Remap(dict(r.get("alias") or {}), bool(r.get("invert")), bounds)
+        adapter.remaps[code] = Remap(dict(r.get("alias") or {}), bool(r.get("invert")), int_bounds(schema, code))
 
 
 # --- descriptor layer ------------------------------------------------------------------------------

@@ -1,19 +1,21 @@
 """Run a `tuya2ildevice.Hub` on the IL transport (il-ha or any IL consumer). The Hub is sans-IO; this is where its
 `Publish`, `Schedule` and `Unschedule` outputs happen. It knows nothing about rustuya-bridge's own MQTT wire, either
 — Hub's bridge-facing `BridgeCommand` outputs (asking the bridge to read/write a device) are handed to
-`on_bridge_command`, supplied by whatever owns the real bridge connection (e.g. rustuya-local's bridge client)."""
+`on_bridge_command`, supplied by whatever owns the real bridge connection (e.g. rustuya-local's bridge client). A
+setting written through IL (`SaveSettings`) goes to `on_settings`, e.g. `OverrideWatcher.save_settings`."""
 
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import secrets
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 
 from ..io import Connected, Disconnected
 from ..io import Message as DriverInput
-from ..mqtt import IL, BridgeCommand, Hub, Publish, Schedule, Unschedule
+from ..mqtt import IL, BridgeCommand, Hub, Publish, SaveSettings, Schedule, Unschedule
 from .transport import Message, Transport, Unsubscribe
 
 _LOGGER = logging.getLogger(__name__)
@@ -57,12 +59,19 @@ async def producer_running(il: Transport, presence: str, timeout: float = 2.0) -
 
 
 class Runner:
-    def __init__(self, hub: Hub, il: Transport, clock: Callable[[], float] = time.time,
-                 on_bridge_command: Callable[[BridgeCommand], None] | None = None) -> None:
+    """`on_bridge_command(command)`: carry out a `BridgeCommand` on the real bridge. `on_settings(device_id, block)`:
+    keep a device's settings block (`SaveSettings`) and reload the overrides with it, e.g.
+    `OverrideWatcher.save_settings`; a coroutine function runs as a task, which `drain()` waits for."""
+
+    def __init__(self, hub: Hub, il: Transport, clock: Callable[[], float] = time.time, *,
+                 on_bridge_command: Callable[[BridgeCommand], None] | None = None,
+                 on_settings: Callable[[str, dict], Awaitable[None] | None] | None = None) -> None:
         self.hub = hub
         self.il = il
         self.clock = clock
         self._on_bridge_command = on_bridge_command
+        self._on_settings = on_settings
+        self._tasks: set[asyncio.Task] = set()
         self._unsubs: list[Unsubscribe] = []
         self._timers: dict[tuple[str, str], asyncio.TimerHandle] = {}
         self._out: asyncio.Queue = asyncio.Queue()
@@ -106,6 +115,8 @@ class Runner:
             self._worker = None
 
     async def drain(self) -> None:
+        while self._tasks:                         # settings being saved: their reload publishes too
+            await asyncio.gather(*self._tasks, return_exceptions=True)
         await self._out.join()
 
     # ---- runtime device changes (each returns nothing; the Hub's outputs are executed) --------------
@@ -167,8 +178,29 @@ class Runner:
             elif isinstance(p, BridgeCommand):
                 if self._on_bridge_command is not None:
                     self._on_bridge_command(p)
+            elif isinstance(p, SaveSettings):
+                if self._on_settings is not None:
+                    self._save(p)
             else:
                 self._out.put_nowait(p)
+
+    def _save(self, p: SaveSettings) -> None:
+        try:
+            out = self._on_settings(p.device_id, p.block)
+        except Exception:
+            _LOGGER.exception("could not save the settings of %s", p.device_id)
+            return
+        if inspect.isawaitable(out):
+            task = asyncio.ensure_future(self._saving(p.device_id, out))
+            self._tasks.add(task)
+            task.add_done_callback(self._tasks.discard)
+
+    @staticmethod
+    async def _saving(device_id: str, out: Awaitable) -> None:
+        try:
+            await out
+        except Exception:
+            _LOGGER.exception("could not save the settings of %s", device_id)
 
     def _cancel(self, device_id: str, name: str) -> None:
         if handle := self._timers.pop((device_id, name), None):

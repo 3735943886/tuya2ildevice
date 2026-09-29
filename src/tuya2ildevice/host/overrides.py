@@ -6,6 +6,9 @@
   `Converter` subclass taking its config works) and an override block turns one on for a product or a device with
   ``{"converters": {"name": {...config...}}}``. The code runs in-process: trust it like any plugin.
 
+`SETTINGS_FILE` (``zz_settings.json``, loaded last by its name) holds the settings written through IL, a block per
+device (`OverrideWatcher.save_settings`); it can be edited like any other file.
+
 `manifest.json` and files starting with `.` or `_` are skipped. Nothing here raises for a bad file: a file that cannot
 be read, parsed or imported is left out and reported in `OverrideSet.warnings`, and the rest still loads.
 """
@@ -17,6 +20,7 @@ import hashlib
 import importlib.util
 import json
 import logging
+import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -27,6 +31,7 @@ from .runner import Runner
 
 _LOGGER = logging.getLogger(__name__)
 _SKIP = {"manifest.json"}
+SETTINGS_FILE = "zz_settings.json"               # after the pack's (`00_pack_*`) and the user's files, by name
 
 
 @dataclass
@@ -155,10 +160,48 @@ class OverrideWatcher:
         return True
 
     def _apply(self, loaded: OverrideSet) -> None:
+        if self.runner is None:
+            return
         try:
             self.runner.reload(loaded.overrides, None, loaded.converter_types)
         except OverrideError as e:
             _LOGGER.warning("overrides in %s not applied: %s", self.path, e)
+
+    async def save_settings(self, device_id: str, block: dict) -> None:
+        """Keep `block` as the device's entry in `SETTINGS_FILE` (an empty block removes it), written atomically, then
+        load the overrides again and reload the Hub at once (not at the next look). Never raises: a failure is
+        logged. With a single `.json` file for the overrides there is nowhere to write, and nothing is."""
+        if self.path.is_file() or (self.path.suffix == ".json" and not self.path.is_dir()):
+            _LOGGER.warning("overrides are the one file %s: the settings of %s are not saved", self.path, device_id)
+            return
+        try:
+            await asyncio.to_thread(self._write_settings, device_id, block)
+        except Exception:
+            _LOGGER.exception("could not save the settings of %s in %s", device_id, self.path / SETTINGS_FILE)
+            return
+        try:
+            def work() -> tuple[Any, OverrideSet]:
+                return self._stat(), self.load()
+            self._stamp, loaded = await asyncio.to_thread(work)
+            self._apply(loaded)
+        except Exception:
+            _LOGGER.exception("could not apply the settings of %s", device_id)
+
+    def _write_settings(self, device_id: str, block: dict) -> None:
+        path = self.path / SETTINGS_FILE
+        self.path.mkdir(parents=True, exist_ok=True)
+        data: dict = {}
+        if path.is_file():
+            data = json.loads(path.read_text("utf-8"))       # a file that does not parse is left for its owner to fix
+            if not isinstance(data, dict):
+                raise ValueError(f"{path}: expected an object keyed by device id")
+        if block:
+            data[device_id] = block
+        else:
+            data.pop(device_id, None)
+        tmp = path.with_name(f".{path.name}.tmp")             # a dot file: never loaded
+        tmp.write_text(json.dumps(data, indent=2, sort_keys=True, ensure_ascii=False) + "\n", "utf-8")
+        os.replace(tmp, path)
 
     async def _loop(self) -> None:
         # the file work (stat, read, importing a user's .py) runs in a worker thread: a host such as Home Assistant

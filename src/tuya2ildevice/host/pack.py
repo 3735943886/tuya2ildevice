@@ -15,7 +15,8 @@ Ownership is explicit. `sync()` records what it wrote, by name and hash, in `.tu
 
 - a file of the user's with a pack file's name is left alone (the pack file is not copied);
 - a pack file the user has edited since it was copied becomes the user's: it is no longer updated or removed;
-- a file that fails to download or verify is skipped, and the copy already there stays.
+- a file that fails to download or verify is skipped, and the copy already there stays;
+- `SETTINGS_FILE` (the settings written through IL) is never taken from the pack.
 
 The manifest is trusted as fetched over TLS; each file must match its hash. `.py` files are code converters and run in
 the host's process, like the user's own: whoever can push to `master` can run code there. Everything here is blocking
@@ -34,9 +35,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .overrides import SETTINGS_FILE
+
 _LOGGER = logging.getLogger(__name__)
 
-LEVEL = 1
+LEVEL = 2                                         # 2: the `cover` settings block (0.3.15)
 BASE_URL = "https://raw.githubusercontent.com/3735943886/tuya2ildevice/master/pack/"
 MANIFEST = "manifest.json"
 LEDGER = ".tuya2ildevice_pack.json"
@@ -137,6 +140,9 @@ def _wanted(doc: dict[str, Any]) -> dict[str, str]:
             _LOGGER.warning("pack: manifest entry %r ignored", entry)
             continue
         if entry.get("requires", 0) > LEVEL or entry.get("until", LEVEL + 1) <= LEVEL:
+            continue
+        if name == SETTINGS_FILE:                 # the host's own settings: never the pack's
+            _LOGGER.warning("pack: %s is the host's settings file, not taken from the pack", name)
             continue
         out[name] = sha.lower()
     return out

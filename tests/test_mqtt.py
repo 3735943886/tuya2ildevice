@@ -85,7 +85,8 @@ def test_reload_overrides_republishes_and_clears_removed_props():
     by = topics(pubs)
     assert by["il/cur1/stop"].payload == "" and by["il/cur1/stop"].retain          # M-11
     assert json.loads(by["il/cur1"].payload)["label"] == "Bedroom" and "stop" not in json.loads(by["il/cur1"].payload)["props"]
-    assert BridgeCommand("cur1", "get") in pubs                                    # state again
+    assert by["il/cur1/position"].payload == "30"                                  # worked out again from the last dps
+    assert BridgeCommand("cur1", "get") not in pubs                                # which the host has: nothing to ask
     with pytest.raises(OverrideError):
         hub.reload({"cur1": {"props": {"missing": {"hide": True}}}})
     (cmd,) = hub.on_il(2, "il/cur1/position/set", "70")

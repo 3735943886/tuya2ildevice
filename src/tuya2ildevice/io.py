@@ -92,5 +92,13 @@ class Reject:
     reason: str = ""
 
 
+@dataclass(frozen=True)
+class SettingsChanged:
+    """A setting of the device's own was written (`TuyaDriver(device_settings=True)`): `block` is the device's whole
+    settings block now (e.g. ``{"cover": {"invert_position": true}}``; empty: none), for the host to keep as the
+    device's override block. It takes effect when the host reloads the overrides with it."""
+    block: dict
+
+
 Input = Connected | Disconnected | Message | Command | Timer
-Output = Descriptor | Value | Absent | Event | SendMessage | SetTimer | CancelTimer | Reject
+Output = Descriptor | Value | Absent | Event | SendMessage | SetTimer | CancelTimer | Reject | SettingsChanged
