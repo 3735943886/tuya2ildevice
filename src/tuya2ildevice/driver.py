@@ -17,7 +17,7 @@ from . import covers as cv
 from . import overrides as ov
 from .assemble import UNSUPPORTED, Assembly, Binding, assemble
 from .checks import Rejected, check_command
-from .converters import BUILTIN, Converter, as_result
+from .converters import BUILTIN, Converter, CoverReport, as_result
 from .fallback import unused_plans
 from .io import (
     Absent,
@@ -132,20 +132,22 @@ class TuyaDriver:
 
         self.assembly: Assembly = build(schema)
         self.covers = cv.covers(self.assembly, block, infer_motion=device_settings)
+        choices = {c.part.group: c.position_choice for c in self.covers}
         if drop := cv.dropped(self.covers):             # `position_from_target`: classified again without them
             schema = cv.without(schema, drop)
             self.assembly = build(schema)
             self.covers = cv.covers(self.assembly, block, infer_motion=device_settings)
+        for c in self.covers:
+            c.position_choice = choices.get(c.part.group, False)
         cv.apply(self.covers, self.adapter, schema)
         cv.warn(schema.id, cv.deprecated(block, self.covers))
         self._factories: list = []
         self.converters: list[Converter] = self._make_converters(device, block, converters, types)
         taken = {name for conv in self.converters for name in conv.props()}
         # a converter of the user's owns the motion: the deprecated `cover_motion`, or one with the property's name
-        motion_taken = ("cover_motion" in (block.get("converters") or {})
-                        or any(c.part.prefix + "cover_state" in taken for c in self.covers))
-        if not motion_taken:
-            self.converters += [m for c in self.covers if (m := cv.motion(c)) is not None and m.prop not in taken]
+        motion_taken = taken
+        self.converters += [m for c in self.covers
+                            if c.part.prefix + "cover_state" not in taken and (m := cv.motion(c)) is not None]
         self._bind_converters()
         self.switches: dict[str, tuple[cv.Cover, str]] = (
             cv.switches(self.assembly, self.covers, motion_taken=motion_taken) if device_settings else {})
@@ -253,8 +255,13 @@ class TuyaDriver:
             return []
         self._described = True
         outs: list = [Descriptor(self.descriptor)]
+        # The broker may still hold a previous process's motion. A direct report
+        # requires a live packet, so clear it even before the first snapshot.
+        for conv in self.converters:
+            if isinstance(conv, CoverReport) and conv.prop in self.descriptor["props"]:
+                outs.append(Absent(conv.prop))
         for prop, (cover, key) in self.switches.items():      # the producer's own: known with no device state
-            self._set(prop, cover.settings[key], outs)
+            self._set(prop, cover.state_source if key == "state_source" else cover.settings[key], outs)
         return outs
 
     def _disconnect(self) -> list:

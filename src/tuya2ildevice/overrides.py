@@ -68,7 +68,7 @@ from .tuya.runtime import EntityPlan
 _BLOCK = {"dp", "remove", "category", "props", "device", "converters", "remap", "expose_unused", "auto", "cover"}
 # a cover's settings (`cover`) and their defaults; the first four are also the device's switches (covers.py)
 COVER_DEFAULTS = {"invert_position": False, "invert_set_position": False, "invert_control": False, "infer_motion": True,
-                  "settle": 0, "invert_tilt": False, "position_from_target": False}
+                  "settle": 0, "invert_tilt": False, "position_from_target": False, "state_source": None, "invert_reported_motion": False}
 _DP = {"code", "type", "values", "mode", "report_type"}
 _REMAP = {"alias", "invert"}
 _PATCH_FIELDS = ("label", "class", "category", "unit", "series", "role")     # copied as given; null clears
@@ -182,6 +182,9 @@ def _cover_settings(c: dict, where: str, nested: bool) -> None:
         if k == "settle":
             if isinstance(v, bool) or not isinstance(v, (int, float)) or v < 0:
                 raise OverrideError(f"{where}.settle: seconds, 0 or more")
+        elif k == "state_source":
+            if v not in ("control", "inferred", "none"):
+                raise OverrideError(f"{where}.state_source: control, inferred or none")
         elif k in COVER_DEFAULTS:
             if not isinstance(v, bool):
                 raise OverrideError(f"{where}.{k}: true or false")

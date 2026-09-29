@@ -32,7 +32,7 @@ from tuya2ildevice.host import (
 from tuya2ildevice.host.pack import sync
 
 PCT = {"unit": "%", "min": 0, "max": 100, "scale": 0, "step": 1}
-SWITCH_KEYS = ("cover_invert_position", "cover_invert_set_position", "cover_invert_control", "cover_infer_motion")
+SWITCH_KEYS = ("cover_invert_position", "cover_invert_set_position", "cover_invert_control", "cover_state_source", "cover_position_from_target")
 
 
 def cover(dev_id="c1", category="cl", fns=(), status=(), pid="p", dps=None):
@@ -71,18 +71,18 @@ def drive(device, block=None, **kw):
 
 # ---- which switches a cover gets ---------------------------------------------------------------------------------
 @pytest.mark.parametrize("device, expected", [
-    (curtain(), {"cover_invert_position", "cover_invert_set_position", "cover_infer_motion"}),   # reported + target
-    (ONE_DP, {"cover_invert_position", "cover_infer_motion"}),                                    # one dp for both
-    (READ_ONLY, {"cover_invert_position", "cover_invert_control", "cover_infer_motion"}),         # position + control
-    (CONTROL_ONLY, {"cover_invert_control"}),
+    (curtain(), {"cover_invert_position", "cover_invert_set_position", "cover_state_source", "cover_position_from_target"}),   # reported + target
+    (ONE_DP, {"cover_invert_position", "cover_state_source"}),                                    # one dp for both
+    (READ_ONLY, {"cover_invert_position", "cover_invert_control", "cover_state_source"}),         # position + control
+    (CONTROL_ONLY, {"cover_invert_control", "cover_state_source"}),
 ])
 def test_a_switch_is_offered_only_where_it_changes_something(device, expected):
     desc = TuyaDriver(device, device_settings=True).descriptor
     assert switches(desc) == expected
     for k in expected:
-        assert desc["props"][k]["type"] == "binary" and desc["props"][k]["rw"] and desc["props"][k]["category"] == "config"
+        assert desc["props"][k]["type"] == ("select" if k == "cover_state_source" else "binary") and desc["props"][k]["rw"] and desc["props"][k]["category"] == "config"
     assert desc["props"]["cover_invert_position"]["label"] == "Invert current position" if "cover_invert_position" in expected else True
-    assert ("cover_state" in desc["props"]) == ("cover_infer_motion" in expected)          # inferred by default
+    assert ("cover_state" in desc["props"]) == (device != CONTROL_ONLY)          # inferred by default
 
 
 def test_no_switch_without_device_settings_and_read_only_for_a_hazardous_cover():
@@ -102,7 +102,7 @@ def test_the_switches_show_the_settings_in_effect_even_offline():
                    device_settings=True)
     outs = values(d.describe())
     assert outs["cover_invert_position"] is True and outs["cover_invert_set_position"] is False
-    assert outs["available"] is False and "cover_infer_motion" in d.descriptor["props"]
+    assert outs["available"] is False and "cover_state_source" in d.descriptor["props"]
     d.handle(0, Connected())
     d.handle(1, Message("state", {"3": 30}))
     outs = d.handle(2, Disconnected())
@@ -224,7 +224,7 @@ def test_infer_motion_off_leaves_no_cover_state_and_settle_is_passed_on():
 def test_a_users_cover_motion_wins_over_the_setting():
     d = TuyaDriver(curtain(), overrides={"cur1": {"converters": {"cover_motion": {"invert": True}}}},
                    device_settings=True)
-    assert "cover_infer_motion" not in d.descriptor["props"]                        # it would change nothing
+    assert "cover_state_source" not in d.descriptor["props"]                        # it would change nothing
     d.handle(0, Connected())
     assert motion(d.handle(1, Message("state", {"3": 100}))) == ["closed"]          # the user's own config
 
@@ -255,7 +255,7 @@ def test_writing_a_switch_sends_nothing_and_reports_the_block():
     assert d.handle(2, Command("cover_invert_position", False)) == [
         Value("cover_invert_position", False), SettingsChanged({})]              # back where it started: no block
     d.handle(3, Disconnected())
-    assert d.handle(4, Command("cover_infer_motion", False))[-1] == SettingsChanged({"cover": {"infer_motion": False}})
+    assert d.handle(4, Command("cover_state_source", "none"))[-1] == SettingsChanged({"cover": {"state_source": "none"}})
 
 
 def test_a_switch_keeps_what_differs_from_the_products_block_and_what_the_device_had():
@@ -326,16 +326,16 @@ async def test_a_sync_callback_and_a_failing_one(tmp_path, caplog):
     il = InProcessTransport()
     runner = Runner(Hub([curtain()], device_settings=True), il, on_settings=lambda i, b: saved.append((i, b)))
     await runner.start()
-    await il.publish("il/cur1/cover_infer_motion/set", "false", 1, False)
+    await il.publish("il/cur1/cover_state_source/set", "none", 1, False)
     await runner.drain()
-    assert saved == [("cur1", {"cover": {"infer_motion": False}})]
+    assert saved == [("cur1", {"cover": {"state_source": "none"}})]
     await runner.stop()
 
     async def broken(i, b):
         raise OSError("disk full")
     runner = Runner(Hub([curtain()], device_settings=True), il, on_settings=broken)
     await runner.start()
-    await il.publish("il/cur1/cover_infer_motion/set", "false", 1, False)
+    await il.publish("il/cur1/cover_state_source/set", "none", 1, False)
     await runner.drain()
     assert "could not save the settings of cur1" in caplog.text
     await runner.stop()
@@ -369,3 +369,165 @@ def test_the_pack_never_touches_the_settings_file(tmp_path):
     (dest / SETTINGS_FILE).write_text('{"cur1": {"cover": {"invert_position": true}}}')
     r = sync(dest, base_url=served.as_uri() + "/", manifest=manifest)
     assert not r.changed and json.loads((dest / SETTINGS_FILE).read_text())["cur1"]["cover"]["invert_position"]
+
+
+@pytest.mark.parametrize("device, words", [
+    (CONTROL_ONLY, ["open", "close", "stop"]),
+    (cover(fns=[("mach_operate", "Enum", {"range": ["FZ", "ZZ", "STOP"]})]), ["FZ", "ZZ", "STOP"]),
+    (cover(fns=[("switch_1", "Boolean", {})]), [True, False]),
+])
+@pytest.mark.parametrize("inverse", [False, True])
+def test_direct_reports_without_position(device, words, inverse):
+    d = drive(device, {"state_source": "control", "invert_reported_motion": inverse})
+    assert motion(d.handle(1, Message("state", {"1": words[0]}))) == []
+    for word, state in zip(words, ["closing", "opening", "stopped"] if inverse else ["opening", "closing", "stopped"]):
+        assert motion(d.handle(2, Message("active", {"1": word}))) == [state]
+        assert motion(d.handle(3, Message("active", {"1": word}))) == []
+    d.handle(4, Disconnected())
+    d.handle(5, Connected())
+    assert motion(d.handle(6, Message("state", {"1": words[0]}))) == []
+    assert motion(d.handle(7, Message("active", {"1": words[0]}))) == ["closing" if inverse else "opening"]
+    assert not d.timers
+
+
+def test_direct_reports_do_not_use_position_or_change_commands():
+    normal = drive(curtain(), {"state_source": "control", "position_from_target": True, "invert_position": True})
+    reverse = drive(curtain(), {"state_source": "control", "position_from_target": True, "invert_position": True,
+                               "invert_reported_motion": True})
+    for d in (normal, reverse):
+        assert values(d.handle(1, Message("state", {"2": 100, "3": 50})))["position"] == 0
+        assert motion(d.handle(2, Message("active", {"1": "open"}))) == ["closing" if d is reverse else "opening"]
+        assert motion(d.handle(3, Message("active", {"2": 0}))) == []
+        assert motion(d.handle(4, Message("active", {"1": "stop"}))) == ["stopped"]
+    for prop, value, expected in [("open", None, {"2": 0}), ("close", None, {"2": 100}),
+                                  ("stop", None, {"1": "stop"}), ("position", 70, {"2": 30})]:
+        assert sent(normal.handle(5, Command(prop, value))) == sent(reverse.handle(5, Command(prop, value))) == expected
+
+
+def test_alias_then_control_inversion_then_report_inversion():
+    device = cover(fns=[("control", "Enum", {"range": ["on", "off", "pause"]})])
+    for control_inv in (False, True):
+        for report_inv in (False, True):
+            d = TuyaDriver(device, device_settings=True, overrides={"c1": {
+                "remap": {"control": {"alias": {"on": "open", "off": "close", "pause": "stop"}}},
+                "cover": {"state_source": "control", "invert_control": control_inv, "invert_reported_motion": report_inv}}})
+            d.handle(0, Connected())
+            assert motion(d.handle(1, Message("active", {"1": "on"}))) == ["closing" if control_inv != report_inv else "opening"]
+            assert sent(d.handle(2, Command("open", None))) == {"1": "off" if control_inv else "on"}
+            assert motion(d.handle(3, Message("active", {"1": "pause"}))) == ["stopped"]
+
+
+async def test_source_settings_roundtrip_saved_and_restarted(tmp_path):
+    il, runner, commands = await start(tmp_path)
+    for key, value in [("invert_set_position", "true"), ("position_from_target", "true"),
+                       ("invert_position", "true"), ("state_source", "control"), ("invert_reported_motion", "true")]:
+        await il.publish(f"il/cur1/cover_{key}/set", value, 1, False)
+        await runner.drain()
+    d = runner.hub.drivers["cur1"]
+    assert "cover_position_from_target" in d.descriptor["props"]
+    assert "cover_invert_set_position" not in d.descriptor["props"]
+    assert sent(d.handle(2, Command("position", 70))) == {"2": 30}
+    assert not [c for c in commands if c.action == "set"]
+    await runner.stop()
+    il, runner, commands = await start(tmp_path)
+    assert il.retained["il/cur1/cover_position_from_target"].payload == "true"
+    assert il.retained["il/cur1/cover_state_source"].payload == "control"
+    assert il.retained["il/cur1/cover_invert_reported_motion"].payload == "true"
+    for mode in ("none", "inferred", "control"):
+        await il.publish("il/cur1/cover_state_source/set", mode, 1, False)
+        await runner.drain()
+    assert il.retained["il/cur1/cover_invert_reported_motion"].payload == "true"
+    await il.publish("il/cur1/cover_position_from_target/set", "false", 1, False)
+    await runner.drain()
+    d = runner.hub.drivers["cur1"]
+    assert d.covers[0].cur.code == "percent_state"
+    assert il.retained["il/cur1/cover_invert_set_position"].payload == "true"
+    assert il.retained["il/cur1/position"].payload == "70"
+    assert not [c for c in commands if c.action == "set"]
+    await runner.stop()
+
+
+def test_none_only_derives_rest_and_legacy_setting_maps_to_select():
+    for enabled in (True, False):
+        d = drive(curtain(), {"infer_motion": enabled})
+        assert d.covers[0].state_source == ("inferred" if enabled else "none")
+        assert "cover_infer_motion" not in d.descriptor["props"]
+    d = drive(curtain(), {"state_source": "none", "infer_motion": True})
+    assert motion(d.handle(1, Message("active", {"1": "open", "3": 0}))) == ["closed"]
+    assert motion(d.handle(2, Message("active", {"1": "close", "3": 100}))) == ["open"]
+    assert motion(d.handle(3, Message("active", {"3": 50}))) == ["stopped"]
+    assert not d.timers
+
+
+def test_reload_cancels_inference_timer_and_clears_motion():
+    from tuya2ildevice import Unschedule
+    hub = Hub([curtain()], device_settings=True, overrides={"cur1": {"cover": {"settle": 5}}})
+    hub.start()
+    hub.on_bridge_message(0, "cur1", Message("state", {"3": 50}))
+    hub.on_bridge_message(1, "cur1", Message("active", {"1": "open"}))
+    old = hub.drivers["cur1"]
+    assert old.timers
+    outs = hub.reload({"cur1": {"cover": {"state_source": "control"}}})
+    assert any(isinstance(o, Unschedule) for o in outs)
+    assert Publish("il", "il/cur1/cover_state", "stopped", True, 1) in outs
+    assert not hub.drivers["cur1"].timers
+
+
+def test_user_converter_owns_only_its_cover():
+    from tuya2ildevice import CoverMotion
+    d = drive(TWO, {"state_source": "control", "control_2": {"state_source": "control", "invert_reported_motion": True}},
+              converters={"c1": lambda device: CoverMotion()})
+    assert "cover_state_source" not in d.descriptor["props"]
+    assert "control_2_cover_state_source" in d.descriptor["props"]
+    out = d.handle(1, Message("active", {"3": "open"}))
+    assert motion(out, "control_2_cover_state") == ["closing"]
+    assert motion(out) == []
+
+
+def test_reload_without_position_clears_retained_motion_and_hidden_setting_survives():
+    hub = Hub([CONTROL_ONLY], device_settings=True,
+              overrides={"c1": {"cover": {"state_source": "control", "invert_reported_motion": True}}})
+    hub.start()
+    hub.on_bridge_message(0, "c1", Message("active", {"1": "open"}))
+    outs = hub.reload({"c1": {"cover": {"state_source": "control", "invert_reported_motion": False}}})
+    assert Publish("il", "il/c1/cover_state", "", True, 1) in outs
+    assert not [o for o in outs if isinstance(o, Publish) and o.topic == "il/c1/cover_state" and o.payload]
+    # Retained active/passive packets never supply a live control report.
+    assert hub.on_bridge_message(1, "c1", Message("active", {"1": "close"}), retained=True) == []
+
+
+def test_multiple_cover_position_choices_and_saved_settings_are_independent():
+    d = drive(TWO, {"invert_position": True, "control_2": {
+        "position_from_target": True, "invert_position": True, "state_source": "control"}})
+    assert d.covers[0].cur.code == "percent_state"
+    assert d.covers[1].cur.code == "percent_control_2"
+    assert "cover_position_from_target" in d.descriptor["props"]
+    assert "control_2_cover_position_from_target" in d.descriptor["props"]
+    assert values(d.handle(1, Message("state", {"2": 20, "4": 30, "5": 40, "6": 50})))["position"] == 60
+    assert d._values["control_2_position"] == 70
+    outs = d.handle(2, Command("control_2_cover_invert_reported_motion", True))
+    saved = next(o.block for o in outs if isinstance(o, SettingsChanged))
+    assert saved["cover"]["invert_position"] is True
+    assert saved["cover"]["control_2"]["invert_reported_motion"] is True
+    assert "invert_reported_motion" not in saved["cover"]
+
+
+def test_shared_position_is_never_compared_to_itself_for_motion():
+    d = drive(ONE_DP, {"state_source": "inferred"})
+    assert motion(d.handle(1, Message("active", {"2": 40}))) == ["stopped"]
+    assert motion(d.handle(2, Message("active", {"2": 80}))) == []
+    assert not d.timers
+
+
+@pytest.mark.parametrize("bad", ["invalid", True, None, {}, []])
+def test_invalid_state_source_is_rejected(bad):
+    with pytest.raises(OverrideError):
+        drive(curtain(), {"state_source": bad})
+
+
+def test_direct_mode_start_clears_a_previous_process_retained_motion():
+    hub = Hub([CONTROL_ONLY], device_settings=True,
+              overrides={"c1": {"cover": {"state_source": "control"}}})
+    assert Publish("il", "il/c1/cover_state", "", True, 1) in hub.start()
+    outs = hub.on_bridge_message(0, "c1", Message("state", {"1": "open"}), retained=True)
+    assert not [o for o in outs if isinstance(o, Publish) and o.topic == "il/c1/cover_state" and o.payload]

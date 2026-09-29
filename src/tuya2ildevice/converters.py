@@ -62,7 +62,7 @@ class CoverMotion(Converter):
     of its own. At rest it is `closed` or `open` at an end and `stopped` part way (or with no position known).
 
     The driver turns one on for every cover with a reported position and a separate target or a command
-    (``"cover": {"infer_motion": true}``, the default; the device's *Infer motion* switch), on the codes the cover
+    (``"cover": {"state_source": "inferred"}``, or legacy ``infer_motion: true``), on the codes the cover
     actually has. It sees the dps after the cover's settings and any `remap`, as the engine's `position` does, so
     `cover_state` and `position` always agree.
 
@@ -169,6 +169,41 @@ class CoverMotion(Converter):
 
     def timer(self, now, name, codes) -> Result:
         return self._out(codes, "stopped") if name == "settle" and self.state in self.MOVING else Result()
+
+
+class CoverReport(CoverMotion):
+    """Direct control reports, independent of target comparison and motion timers.
+
+    Snapshots never assert movement. With no position they clear the state; with
+    position they publish only its resting state. Live stop remains stopped,
+    including at endpoints. Position-only updates cannot override live motion.
+    """
+
+    def __init__(self, config=None, *, invert_report=False, enabled=True, **kwargs):
+        super().__init__(config, **kwargs)
+        self.invert_report = invert_report
+        self.enabled = enabled
+
+    def update(self, now, codes, changed, active):
+        if not any(c in changed for c in (self.command, self.position)):
+            return Result()
+        if active and self.enabled and self.command in changed:
+            word = codes.get(self.command)
+            state = next((state for key, state in (("open", "opening"), ("close", "closing"),
+                                                   ("stop", "stopped")) if word == self.words[key]), None)
+            if state is not None:
+                if self.invert_report:
+                    state = {"opening": "closing", "closing": "opening"}.get(state, state)
+                self.state = state
+                return Result({self.prop: state})
+        if active and self.enabled and self.state in self.MOVING:
+            return Result()
+        self.state = None
+        pos = self._open_pct(codes.get(self.position))
+        return Result({self.prop: None if pos is None else "closed" if pos <= 0 else "open" if pos >= 100 else "stopped"})
+
+    def timer(self, now, name, codes):
+        return Result()
 
 
 BUILTIN: dict[str, Callable[[dict], Converter]] = {"cover_motion": CoverMotion}

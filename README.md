@@ -115,10 +115,12 @@ device_settings=True)` (a host with somewhere to keep them) offers each switch o
 | `cover_invert_position` | Invert current position | a reported position (`current_position`) | reads it the other way, 0..100; with one dp for position and target, writes it the other way too |
 | `cover_invert_set_position` | Invert target position | a target (`set_position`) that is another dp | writes the target, and reads it back, the other way |
 | `cover_invert_control` | Invert control | a command dp (`control`) and no target | swaps open and close (`FZ` / `ZZ` on the special command; a Boolean negated) |
-| `cover_infer_motion` | Infer motion | a reported position, and a target that is another dp or a command | `cover_state` (open / closed / opening / closing / stopped) from the position |
+| `cover_position_from_target` | Use target as current position | two distinct position sources before selection | ON uses the target DP for display; OFF restores the original feedback DP; the switch stays available |
+| `cover_state_source` | Motion state source | a position or control DP, with no user converter owning this cover state | select `control` (control reports), `inferred` (position-based motion inference), or `none` (no motion generation); `control` requires a control DP |
+| `cover_invert_reported_motion` | Invert reported motion | control report mode | swaps only the reported opening/closing meaning, leaving stop unchanged |
 
 A cover with a target opens and closes by writing it (100 / 0), and its command dp only stops it: it has no *Invert
-control*. The switches are `binary`, `rw`, `category: config`, and show the settings in effect; a hazardous cover's
+control*. The switches are `binary`, the state source is `select`; all are `rw`, `category: config`, and show the settings in effect; a hazardous cover's
 (garage, gate, ...) are read only unless `allow_hazardous`. A later cover of the device (`control_2`, ...) has its own,
 named by its group (`control_2_cover_invert_position`).
 
@@ -135,7 +137,9 @@ devices and a device's (the switches write the device's) wins:
 | `invert_position` | `false` | as the switch |
 | `invert_set_position` | `false` | as the switch |
 | `invert_control` | `false` | as the switch |
-| `infer_motion` | `device_settings` | as the switch; a host that offers no switches infers no motion unless a block turns it on |
+| `infer_motion` | `device_settings` | legacy Boolean, used only when `state_source` is absent; true maps to `inferred`, false to `none` |
+| `state_source` | legacy `infer_motion` | `control`, `inferred`, or `none`; an explicit value takes precedence over the legacy Boolean |
+| `invert_reported_motion` | `false` | invert only direct control reports |
 | `settle` | `0` | seconds without a position report after which a move counts as stopped (0: never) |
 | `invert_tilt` | `false` | the tilt the other way |
 | `position_from_target` | `false` | the reported position dp is left out and the target read as the position |
@@ -145,6 +149,61 @@ A later cover's keys go in an object under its group's name: `{"cover": {"invert
 the swap is composed with the dp's `remap.alias`, so a device that says `on` / `off` / `pause` keeps its alias.
 `remap.<code>.invert` on a cover's position or command dp and `converters.cover_motion` still work, and log that they
 are deprecated: move them to `cover`.
+
+`control` maps live open/close/stop reports directly to opening/closing/stopped, even without
+position feedback. Boolean true/false and FZ/ZZ/STOP use the same control vocabulary as inference.
+The order on input is `remap.alias`, existing `invert_control` (where applicable), then
+`invert_reported_motion`. The last setting swaps only opening/closing from control reports;
+it never changes sent commands, positions, inferred direction, or endpoint states. Live stop
+is always stopped. Position updates alone do not settle a directly reported movement.
+
+Retained snapshots/readbacks (`state`, and non-live passive reports) never start motion: their
+control may be the last command. A relevant snapshot reports only the position's resting state
+(closed at 0, open at 100, stopped between), or no state without position. Disconnect clears
+motion; reconnect/reload seeds only resting state and waits for a live report. Duplicate live
+reports do not republish unchanged state. Direct report mode has no settle timer.
+
+`inferred` preserves CoverMotion: a control word can start motion; subsequent position feedback
+corrects its direction, while an independent target can be compared with current position.
+A shared current/target DP is never compared against itself. Without independent feedback,
+command direction and arrival cannot be verified; a target-only update does not prove movement.
+`none` generates only resting state from position and never movement. Legacy `infer_motion:false`
+keeps its previous behavior of omitting the separate cover_state property (position remains
+available); explicitly selecting `none` also provides the resting state property.
+
+The old Infer motion switch is replaced by the state source select, not exposed alongside it.
+Existing JSON and saved `zz_settings.json` Booleans remain readable; the select shows their mapped
+mode and subsequent selections save `state_source`. Explicit state_source wins even if an older
+infer_motion entry remains. A user converter owning a cover's `cover_state` retains ownership:
+that cover gets neither the built-in state producer nor its source/direction controls. Other
+covers remain independent, including when legacy `converters.cover_motion` owns the first one.
+
+Settings remain saved while their controls are hidden: target inversion is dormant while current
+and target share a DP, and reported motion inversion is dormant outside control mode. Switching
+back restores them. Current-position inversion follows the selected display source; when that
+source is also the target, it inverts both reads and writes. Property IDs and cover group IDs
+stay stable through source changes. Host reload cancels old timers and clears the old cover state
+before publishing a fresh snapshot. A bare sans-IO caller must save SettingsChanged and reload,
+just as for the existing inversion switches.
+
+For **f6jujmx0is5td50x**, remove its old `remove`, `remap` and `converters.cover_motion` JSON
+entries, then configure the device (no product ID is hardcoded):
+
+1. **Use target as current position**: ON.
+2. **Invert current position**: ON.
+3. **Motion state source**: `control`.
+4. **Invert reported motion**: ON.
+
+This selects percent_control (DP 2 in the referenced schema), inverts its reads and writes, and
+reverses only the reported motion. The DP name does not establish that it reports physical position:
+if firmware reports only a target, the displayed position is only that target; intermediate travel,
+arrival and physical resting position cannot be determined from it.
+
+The previous rustuya-homeassistant JSON selected DP 2, inverted position reads and target writes,
+and mapped control directly; it was not enrolled in the Python converter because it had no
+`state_stream: "derived"`. Its MQTT open/close commands used control open/close. This package
+continues to send target 100/0 when set_position exists (after position inversion), so its command
+path is **different from that earlier implementation**. Report inversion does not change that path.
 
 The package carries no block for any product or device. A fix for a model goes in a converters file: the user's own,
 or the [override pack](pack/README.md), which hosts copy into that directory.
@@ -168,7 +227,7 @@ TuyaDriver(device, converter_types={"my": MyConverter}, overrides={"<product_id>
 ```
 
 The built-in `CoverMotion` gives a cover its `cover_state` role (open / closed / opening / closing / stopped); the
-cover settings turn it on (`infer_motion`) on the dps the cover actually has, after its inversions. A command word
+cover settings turn it on (`state_source: "inferred"`, or legacy `infer_motion`) on the dps the cover actually has, after its inversions. A command word
 only says a move started, the position reports after it decide which way; a snapshot never starts motion. Naming it
 in a block (`{"converters": {"cover_motion": {...}}}`) still works, deprecated. Timers come out as `SetTimer` (driver)
 or `Schedule` (`Hub`); the host calls back with `Timer` / `hub.on_timer(now, id, name)`.

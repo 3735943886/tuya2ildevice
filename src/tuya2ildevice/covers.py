@@ -1,24 +1,9 @@
-"""A cover's settings, sans-IO: which way its position and its commands run, and whether its motion is inferred.
+"""Cover settings and configuration entities, applied after DP role classification.
 
-An override block's `cover` (see `overrides.py`) sets them; each has a default:
-
-    invert_position      false   the reported position (`current_position`) read the other way, 0..100; when the
-                                 target is the same dp, it is written the other way too
-    invert_set_position  false   the target (`set_position`, a dp of its own) written, and read, the other way
-    invert_control       false   open and close swapped on the command dp (FZ / ZZ on the special one; a Boolean
-                                 negated); only for a cover with no target, where open / close are commands
-    infer_motion         true    `cover_state` from the position (`CoverMotion`), for a cover with a reported position
-                                 and a separate target or a command; the default is `device_settings`' (a host that
-                                 offers no switches keeps its descriptors as they were unless a block turns it on)
-    settle               0       `CoverMotion`: seconds without a position report after which motion counts as stopped
-    invert_tilt          false   the tilt the other way
-    position_from_target false   the target is taken as the position: the reported position dp is left out
-
-They apply after the cover builder has found the cover's dps: an inversion is laid over the dp's `Remap` (XOR with a
-`remap.invert` the block also has), and the swap is composed with the dp's `remap.alias`. With
-`Hub(device_settings=True)` the first four are also the device's configuration switches, each offered only where it
-changes something; a switch writes nothing to the device, the driver reports the device's settings block for the
-host to save (`SettingsChanged`).
+Position choice is retained from the original classification. Inversions compose
+with adapter remaps; direct report inversion affects only CoverReport output.
+state_source overrides the legacy infer_motion Boolean. SettingsChanged lets the
+host persist settings and rebuild the driver without sending motor commands.
 """
 from __future__ import annotations
 
@@ -28,7 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .assemble import Assembly, Binding, CoverPart
-from .converters import CoverMotion
+from .converters import CoverMotion, CoverReport
 from .overrides import COVER_DEFAULTS, OverrideError, int_bounds
 from .tuya.adapter import Adapter, Remap
 from .tuya.model import BOOLEAN, ENUM, DeviceSchema, ResolvedDp
@@ -39,7 +24,8 @@ _WARNED: set[tuple[str, str]] = set()
 
 # the switches, in the order they appear, with their labels
 SWITCHES = {"invert_position": "Invert current position", "invert_set_position": "Invert target position",
-            "invert_control": "Invert control", "infer_motion": "Infer motion"}
+            "invert_control": "Invert control", "position_from_target": "Use target as current position",
+            "state_source": "Motion state source", "invert_reported_motion": "Invert reported motion"}
 _NEVER = object()                                                            # a word no dp carries
 _SWAPS = ({"open": "close", "close": "open"}, {"FZ": "ZZ", "ZZ": "FZ"})      # a command dp's open / close words
 
@@ -55,12 +41,24 @@ class Cover:
     tilt: ResolvedDp | None = None
     switches: list[str] = field(default_factory=list)
 
+    position_choice: bool = False
+
+    @property
+    def state_source(self) -> str:
+        return self.settings["state_source"] or ("inferred" if self.settings["infer_motion"] else "none")
+
     @property
     def separate_target(self) -> bool:
         return self.setp is not None and (self.cur is None or self.setp.code != self.cur.code)
 
     def applies(self, key: str) -> bool:
         """Does the setting change anything for this cover?"""
+        if key == "position_from_target":
+            return self.position_choice
+        if key == "state_source":
+            return self.cur is not None or self.ins is not None
+        if key == "invert_reported_motion":
+            return self.ins is not None and self.state_source == "control"
         if key == "invert_position":
             return self.cur is not None
         if key == "invert_set_position":
@@ -87,8 +85,10 @@ def covers(assembly: Assembly, block: dict, *, infer_motion: bool = True) -> lis
     out = []
     for part in assembly.covers:
         r = part.plan.roles
-        out.append(Cover(part, defaults, {**defaults, **_own(block, part.group)}, r.get("current_position"),
+        out.append(Cover(part, defaults, {**defaults, **_own(block, part.group)}, r.get("current_position") or r.get("set_position"),
                          r.get("set_position"), r.get("instruction"), r.get("tilt")))
+    for c in out:
+        c.position_choice = c.cur is not None and c.separate_target
     groups = {c.part.group for c in out}
     for k, v in (block.get("cover") or {}).items():
         if isinstance(v, dict) and k not in groups:
@@ -151,31 +151,38 @@ def apply(found: list[Cover], adapter: Adapter, schema: DeviceSchema) -> None:
 
 
 def motion(c: Cover) -> CoverMotion | None:
-    """The cover's inferred motion, if it is on and can be inferred."""
-    if not (c.settings["infer_motion"] and c.applies("infer_motion")):
-        return None
+    """One state producer per cover: direct reports, inference, or position at rest."""
     cfg = {"command": c.ins.code if c.ins is not None else None,
            "set_position": c.setp.code if c.separate_target else None,
-           "position": c.cur.code, "settle": c.settings["settle"]}
+           "position": c.cur.code if c.cur is not None else None, "settle": c.settings["settle"]}
     if c.ins is not None and c.ins.kind == BOOLEAN:
         cfg["words"] = {"open": True, "close": False, "stop": _NEVER}
     elif c.ins is not None and c.ins.kind == ENUM and set(_SWAPS[1]) <= set(c.ins.spec.range):
         cfg["words"] = {"open": "FZ", "close": "ZZ", "stop": "STOP"}
-    return CoverMotion(cfg, prop=c.part.prefix + "cover_state", group=c.part.group)
+    kwargs = {"prop": c.part.prefix + "cover_state", "group": c.part.group}
+    if c.state_source == "control" and c.ins is not None:
+        return CoverReport(cfg, invert_report=c.settings["invert_reported_motion"], **kwargs)
+    if c.state_source == "inferred" and c.applies("infer_motion"):
+        return CoverMotion(cfg, **kwargs)
+    if c.cur is not None and c.settings["state_source"] == "none":
+        return CoverReport(cfg, enabled=False, **kwargs)
+    return None
 
 
-def switches(assembly: Assembly, found: list[Cover], *, motion_taken: bool) -> dict[str, tuple[Cover, str]]:
+def switches(assembly: Assembly, found: list[Cover], *, motion_taken: set[str]) -> dict[str, tuple[Cover, str]]:
     """Add each cover's switches that change something to the descriptor (read only for a hazardous cover); returns
     ``{property: (cover, setting)}``. `motion_taken`: a converter of the user's owns the motion, so no switch for it."""
     props, out = assembly.descriptor["props"], {}
     for c in found:
         for key, label in SWITCHES.items():
-            if not c.applies(key) or (key == "infer_motion" and motion_taken):
+            if not c.applies(key) or (key in ("state_source", "invert_reported_motion") and c.part.prefix + "cover_state" in motion_taken):
                 continue
             name = f"{c.part.prefix}cover_{key}"
             if name in props:
                 continue
             d = {"type": "binary", **({} if c.part.hazardous else {"rw": True}), "category": "config", "label": label}
+            if key == "state_source":
+                d.update(type="select", options=["control", "inferred", "none"] if c.ins is not None else ["inferred", "none"])
             props[name] = {**d, "group": c.part.group} if c.part.group else d
             assembly.bindings[name] = Binding(name, EntityPlan("setting", name, {}, {}, ()))
             c.switches.append(key)

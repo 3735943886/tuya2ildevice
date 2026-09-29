@@ -198,7 +198,9 @@ class Hub:
         if old is not None:
             pubs += [Unschedule(i, n) for n in sorted(old.timers)]
             pubs += [_retained(self.il.state(i, prop))
-                     for prop in old.descriptor["props"].keys() - new.descriptor["props"].keys()]
+                     for prop in old.descriptor["props"].keys() - new.descriptor["props"].keys()
+                     | {p for p, definition in old.descriptor["props"].items()
+                        if definition.get("role") == "cover_state"}]
         pubs += self._il_pubs(i, new.describe(seed, now))
         self.drivers[i] = new
         return pubs
