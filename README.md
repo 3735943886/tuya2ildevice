@@ -23,6 +23,8 @@ d.handle(now, Command("switch_1", "off"))    # -> [SendMessage("set", {"dps": {"
 
 ## Packets and commands
 
+- Numeric properties use the native unit of their values. For example, a plug reporting `500 mA` publishes
+  `500` with unit `mA`; a suggested display unit such as `A` does not change the wire unit or magnitude.
 - `Message(channel, json)`: `active` (device push: fires events, accumulates `add_ele`-style deltas) or `passive` /
   `state` (readback, snapshot: values only). `json` is a flat `{dp: value}` map (the host has already decoded whatever
   the bridge's own wire payload looked like — see `Hub.on_bridge_message` below).

@@ -6,8 +6,11 @@ Every remaining difference is a documented IL-level decision, listed here so a n
   * climate           — IL `climate` requires `target_temperature`; core makes a climate without one.
   * humidifier        — IL `humidifier` requires `target_humidity`; core makes one from a bare switch. The dps stay
                         available as switch/select/sensor.
-  * windspeed unit    — Home Assistant converts to the display unit on the host side; not a producer concern.
+  * sensor units      — Home Assistant converts native values to display units on the host side;
+                        IL declares the native unit that matches the published magnitude.
 """
+from collections import Counter
+
 import pytest
 from props import compare
 
@@ -41,4 +44,9 @@ def test_class_and_category_match(result):
 
 
 def test_only_unit_difference_is_host_conversion(result):
-    assert [r[:2] for r in result["rows"]["unit"]] == [("qxj_fsea1lat3vuktbt6", "windspeed_avg")]
+    rows = result["rows"]["unit"]
+    assert all(platform == "sensor" for _, _, platform, _, _ in rows)
+    assert Counter((display, native) for _, _, _, display, native in rows) == {
+        ("A", "mA"): 53, ("kW", "W"): 17, ("kVA", "VA"): 3,
+        ("kvar", "var"): 3, ("W", "kW"): 2, ("km/h", "m/s"): 1,
+    }

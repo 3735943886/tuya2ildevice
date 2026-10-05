@@ -59,6 +59,34 @@ def test_a_fan_and_a_climate_power_are_named_after_their_dp():
     assert TuyaDriver(ac).descriptor["props"]["switch"]["role"] == "on"
 
 
+@pytest.mark.parametrize("code,prop,unit,value", [
+    ("cz_qxJSyTLEtX5WrzA9", "cur_current", "mA", 81),
+    ("cz_2jxesipczks0kdct", "cur_current", "A", 0.083),
+    ("dlq_z3jngbyubvwgfrcv", "phase_aelectriccurrent", "mA", 608),
+    ("dlq_z3jngbyubvwgfrcv", "phase_apower", "W", 133),
+])
+def test_electricity_values_keep_their_native_units(code, prop, unit, value):
+    rec, dps = record(code)
+    driver = TuyaDriver(rec)
+    assert driver.descriptor["props"][prop]["unit"] == unit
+    out = driver.handle(0, Connected()) + driver.handle(1, Message("state", dps))
+    published = {o.prop: o.value for o in out if isinstance(o, Value)}
+    assert published[prop] == pytest.approx(value)
+
+
+@pytest.mark.parametrize("code", fixtures.all_codes())
+def test_numeric_properties_declare_the_unit_of_the_published_value(code):
+    rec, _ = record(code)
+    driver = TuyaDriver(rec, allow_hazardous=True)
+    for prop, binding in driver.assembly.bindings.items():
+        if binding.plan.platform not in ("sensor", "number"):
+            continue
+        spec = driver.descriptor["props"][prop]
+        if spec["type"] == "number":
+            native = binding.plan.identity.get("native_unit")
+            assert spec.get("unit") == (native.replace("µ", "μ") if native else None)
+
+
 def test_the_descriptor_names_the_hubs_source():
     rec, _ = record("fs_g0ewlb1vmwqljzji")
     hub = Hub([rec], il=IlTopics("il", "tuya-house"))

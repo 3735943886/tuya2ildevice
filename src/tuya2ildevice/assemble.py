@@ -62,7 +62,8 @@ class Assembly:
 
 
 def _unit(ident: dict) -> str | None:
-    u = ident.get("suggested_unit") or ident.get("native_unit")
+    # Bindings publish native_value; a suggested display unit does not convert its magnitude.
+    u = ident.get("native_unit")
     return u.replace("µ", "μ") if u else None          # U-2
 
 
