@@ -16,6 +16,7 @@ product's, and both win over the built-in quirks). A block:
                  "fault_flag": {"invert": true}},
       "cover":  {"invert_position": false, "invert_set_position": false, "invert_control": false,
                  "infer_motion": true, "settle": 0, "invert_tilt": false, "position_from_target": false},
+      "delta":  {"accept_passive": false},            # a delta dp (add_ele) also counts passive reports
       "converters": {"glow": {...}},                   # code converters by name (converters.py, or the host's)
       "expose_unused": true,                           # this device only: every dp no table claims gets a property
       "auto": false                                    # no property from the tables: only what `props` defines
@@ -32,6 +33,9 @@ range (on a cover's position or command dp it still works but is deprecated, as 
 configuration switches (`cover_invert_position`, ...; `Hub(device_settings=True)`), which save what they are set to as
 the device's block. For a device with several covers, a later cover's settings go in an object under its group's
 name: ``{"cover": {"invert_position": true, "control_2": {"invert_position": true}}}``.
+`delta` sets which reports count an increment of a delta dp (`report_type: sum`, e.g. `add_ele`; see `deltas.py`):
+`accept_passive` counts the device's passive reports too, for a device that never pushes it actively. It is also the
+device's configuration switch `delta_accept_passive`.
 `props` and `device` patch the finished descriptor; `props` keys are property names as `descriptor_of` shows them.
 A `props` entry with a `src` (a dp code, after any rename) defines the property instead, replacing one of that name:
 its `type` follows the dp's (Boolean binary, Integer number, Enum select, others text) unless given, `min`/`max`/`step`,
@@ -65,10 +69,13 @@ from .tuya.model import (
 from .tuya.quirks import apply_quirk
 from .tuya.runtime import EntityPlan
 
-_BLOCK = {"dp", "remove", "category", "props", "device", "converters", "remap", "expose_unused", "auto", "cover"}
+_BLOCK = {"dp", "remove", "category", "props", "device", "converters", "remap", "expose_unused", "auto", "cover",
+          "delta"}
 # a cover's settings (`cover`) and their defaults; the first four are also the device's switches (covers.py)
 COVER_DEFAULTS = {"invert_position": False, "invert_set_position": False, "invert_control": False, "infer_motion": True,
                   "settle": 0, "invert_tilt": False, "position_from_target": False, "state_source": None, "invert_reported_motion": False}
+# a delta dp's settings (`delta`) and their defaults, each also the device's switch (deltas.py)
+DELTA_DEFAULTS = {"accept_passive": False}
 _DP = {"code", "type", "values", "mode", "report_type"}
 _REMAP = {"alias", "invert"}
 _PATCH_FIELDS = ("label", "class", "category", "unit", "series", "role")     # copied as given; null clears
@@ -165,6 +172,13 @@ def validate(block: dict, where: str = "override", converter_types=None) -> dict
             raise OverrideError(f"{where}.remap.{code}.invert: true or false")
     if "cover" in block:
         _cover_settings(block["cover"], f"{where}.cover", nested=True)
+    if "delta" in block:
+        if not isinstance(block["delta"], dict):
+            raise OverrideError(f"{where}.delta: must be an object")
+        _unknown(f"{where}.delta", block["delta"], set(DELTA_DEFAULTS))
+        for k, v in block["delta"].items():
+            if not isinstance(v, bool):
+                raise OverrideError(f"{where}.delta.{k}: true or false")
     known = set(BUILTIN_CONVERTERS) | set(converter_types or ())
     for name, cfg in (block.get("converters") or {}).items():
         if name not in known:

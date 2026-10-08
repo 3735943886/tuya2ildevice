@@ -14,6 +14,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from . import covers as cv
+from . import deltas as dl
 from . import overrides as ov
 from .assemble import UNSUPPORTED, Assembly, Binding, assemble
 from .checks import Rejected, check_command
@@ -93,8 +94,8 @@ class TuyaDriver:
     `converter_types`: extra named converters (``{name: factory(config) -> Converter}``, e.g. from a user's `.py`
     files) that an override block can name in `converters`, next to the built-in ones.
     `use_quirks`: the built-in quirks; on by default.
-    `device_settings`: offer the device's settings (a cover's direction and motion, see `covers.py`) as configuration
-    switches; writing one sends nothing to the device and returns `SettingsChanged` with the device's settings block,
+    `device_settings`: offer the device's settings (a cover's direction and motion, see `covers.py`; which reports a
+    delta dp counts, see `deltas.py`) as configuration switches; writing one sends nothing to the device and returns `SettingsChanged` with the device's settings block,
     for the host to keep with its overrides. Off by default: a host with nowhere to keep them offers none."""
 
     def __init__(self, device: dict, *, env: HostEnv | None = None, use_quirks: bool = True,
@@ -149,8 +150,12 @@ class TuyaDriver:
         self.converters += [m for c in self.covers
                             if c.part.prefix + "cover_state" not in taken and (m := cv.motion(c)) is not None]
         self._bind_converters()
-        self.switches: dict[str, tuple[cv.Cover, str]] = (
-            cv.switches(self.assembly, self.covers, motion_taken=motion_taken) if device_settings else {})
+        self.delta = dl.delta(self.assembly, block)
+        # property -> (the settings' owner, the setting): a cover's, or the delta dps'
+        self.switches: dict[str, tuple[cv.Cover | dl.Delta, str]] = {}
+        if device_settings:
+            self.switches = {**cv.switches(self.assembly, self.covers, motion_taken=motion_taken),
+                             **dl.switches(self.assembly, self.delta)}
         self._own_blocks = tuple(((overrides or {}).get(k) or {}) if k else {}
                                  for k in (device.get("product_id"), device.get("id")))
         ov.patch_descriptor(self.assembly, block, schema)
@@ -228,7 +233,7 @@ class TuyaDriver:
     def fingerprint(self) -> tuple:
         """What makes two drivers of one device behave alike beyond their descriptor: the override block, the code
         converters, the settings in effect (`Hub.reload` replaces a driver only when this or the descriptor changes)."""
-        return self.block, self._factories, [c.settings for c in self.covers]
+        return self.block, self._factories, [c.settings for c in self.covers], self.delta and self.delta.settings
 
     @property
     def dps(self) -> dict[str, Any]:
@@ -236,8 +241,19 @@ class TuyaDriver:
         return dict(self._dps)
 
     def settings_block(self) -> dict:
-        """The device's settings block, as its switches leave it (see `covers.block`)."""
-        return cv.block(self.covers, *self._own_blocks)
+        """The device's settings block, as its switches leave it (see `covers.block`, `deltas.block`)."""
+        return {**cv.block(self.covers, *self._own_blocks), **dl.block(self.delta, *self._own_blocks)}
+
+    def carry(self, old: TuyaDriver) -> None:
+        """Take over the totals `old` (a driver of the same device it replaces) counted for the delta properties both
+        have, so a reload does not start them from zero again. The report numbering carries on too: a report with no
+        Tuya `t` is told from the last one counted by it."""
+        self._seq = max(self._seq, old._seq)
+        for name, b in self.assembly.bindings.items():
+            ob = old.assembly.bindings.get(name)
+            if b.plan.slot_kind == "delta" and b.slot is not None and ob is not None and ob.slot is not None \
+                    and ob.plan.slot_kind == "delta" and ob.plan.depends_on == b.plan.depends_on:
+                b.slot.total, b.slot.last_ts = ob.slot.total, ob.slot.last_ts
 
     def describe(self, seed: Sequence[Any] = (), now: float = 0) -> list:
         """The descriptor, then what `seed` makes of the device: inputs the host already has for it (its link's state,
@@ -260,8 +276,8 @@ class TuyaDriver:
         for conv in self.converters:
             if isinstance(conv, CoverReport) and conv.prop in self.descriptor["props"]:
                 outs.append(Absent(conv.prop))
-        for prop, (cover, key) in self.switches.items():      # the producer's own: known with no device state
-            self._set(prop, cover.state_source if key == "state_source" else cover.settings[key], outs)
+        for prop, (owner, key) in self.switches.items():      # the producer's own: known with no device state
+            self._set(prop, owner.value(key), outs)
         return outs
 
     def _disconnect(self) -> list:
@@ -295,6 +311,9 @@ class TuyaDriver:
         self._dps.update(dps)
         new = self.adapter.read(dps)
         pushed = msg.channel == "active"
+        # what adds a delta dp's increment: a push, or with `delta.accept_passive` a live passive report too (any one
+        # that carries the dp, even with the value it had)
+        counted = pushed or (msg.channel == "passive" and self.delta is not None and self.delta.settings["accept_passive"])
         moved = [c for c in new if self._codes.get(c, _MISSING) != new[c]]
         if pushed or not self._synced:
             active, changed = pushed, list(new)     # a push, or the first snapshot: every dp in it
@@ -329,11 +348,10 @@ class TuyaDriver:
             if b.read is None:
                 continue
             if b.plan.slot_kind == "delta":
-                if pushed and deps[0] in changed:          # an increment counts once: only a real push adds it
-                    res = on_update(b.plan, b.slot, changed, stamps, self._codes)
-                    if res.write_state:
-                        self._set(name, b.read(self._codes, b.slot), outs)
-                elif first:
+                # an increment counts once: only a report that adds it (a readback or a snapshot carries an old one)
+                added = counted and deps[0] in new and on_update(
+                    b.plan, b.slot, list(new), dict.fromkeys(new, ts), self._codes).write_state
+                if added or first:
                     self._set(name, b.read(self._codes, b.slot), outs)
                 continue
             if first or b.plan.update_all or any(c in changed for c in deps):
@@ -371,8 +389,8 @@ class TuyaDriver:
         except Rejected as e:
             return [Reject(cmd.prop, e.code, e.reason)]
         if cmd.prop in self.switches:                 # a setting: nothing goes to the device, the host saves it
-            cover, key = self.switches[cmd.prop]
-            cover.settings[key] = value
+            owner, key = self.switches[cmd.prop]
+            owner.settings[key] = value
             outs: list = []
             self._set(cmd.prop, value, outs)
             return [*outs, SettingsChanged(self.settings_block())]

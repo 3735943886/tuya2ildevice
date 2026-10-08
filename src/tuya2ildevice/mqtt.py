@@ -193,9 +193,11 @@ class Hub:
 
     def _replace(self, i: str, old: TuyaDriver | None, new: TuyaDriver, seed: Sequence = (), now: float = 0) -> list:
         """Drive device `i` with `new` from now on: `old`'s timers are cancelled and the properties it had that `new`
-        has not are cleared (M-11), then `new` is described (with `seed`, see `TuyaDriver.describe`)."""
+        has not are cleared (M-11), then `new` is described (with `seed`, see `TuyaDriver.describe`); the totals `old`
+        counted carry over."""
         pubs: list = []
         if old is not None:
+            new.carry(old)
             pubs += [Unschedule(i, n) for n in sorted(old.timers)]
             pubs += [_retained(self.il.state(i, prop))
                      for prop in old.descriptor["props"].keys() - new.descriptor["props"].keys()

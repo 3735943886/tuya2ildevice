@@ -13,5 +13,5 @@ those fixes live, and they reach users without a release: hosts running `tuya2il
   `00_pack_<what>.<ext>` so a user's own files (loaded later, by name) refine them.
 - After adding, changing or removing a file, run `python scripts/build_pack.py`; the tests check the manifest.
 - A file that needs something a tuya2ildevice release added gets `"requires": <LEVEL of that release>` in its manifest
-  entry: a file with a `cover` block needs `"requires": 2` (0.3.15). When a release makes a file unnecessary (the engine now handles such devices generically), bump `LEVEL`
+  entry: a file with a `cover` block needs `"requires": 2` (0.3.15), one with a `delta` block `"requires": 3`. When a release makes a file unnecessary (the engine now handles such devices generically), bump `LEVEL`
   (`host/pack.py`) in it and give the file `"until": <that LEVEL>`; older installations keep it, newer ones remove it.

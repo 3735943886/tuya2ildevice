@@ -26,7 +26,8 @@ d.handle(now, Command("switch_1", "off"))    # -> [SendMessage("set", {"dps": {"
 - Numeric properties use the native unit of their values. For example, a plug reporting `500 mA` publishes
   `500` with unit `mA`; a suggested display unit such as `A` does not change the wire unit or magnitude.
 - `Message(channel, json)`: `active` (device push: fires events, accumulates `add_ele`-style deltas) or `passive` /
-  `state` (readback, snapshot: values only). `json` is a flat `{dp: value}` map (the host has already decoded whatever
+  `state` (readback, snapshot: values only; with `delta.accept_passive`, a passive report adds its delta too, see
+  [Delta settings](#delta-settings)). `json` is a flat `{dp: value}` map (the host has already decoded whatever
   the bridge's own wire payload looked like — see `Hub.on_bridge_message` below).
 - `Command(prop, value)` is checked as il.md section 5 says before anything is sent; failures come back as `Reject`.
   Values convert as in Home Assistant core (brightness goes through 0..255), so a written value can differ slightly
@@ -64,6 +65,7 @@ Details and the block format are in [overrides.py](src/tuya2ildevice/overrides.p
     "category": "cl",
     "remap":  {"control": {"alias": {"on": "open", "off": "close", "pause": "stop"}}},
     "cover":  {"invert_position": true, "settle": 5},
+    "delta":  {"accept_passive": true},
     "props":  {"countdown_1": {"label": "Timer", "category": "config", "rw": false}},
     "device": {"model": "Sliding Window Opener"},
     "converters": {"glow": {"on": "bright"}},
@@ -158,6 +160,22 @@ The order on input is `remap.alias`, existing `invert_control` (where applicable
 `invert_reported_motion`. The last setting swaps only opening/closing from control reports;
 it never changes sent commands, positions, inferred direction, or endpoint states. Live stop
 is always stopped. Position updates alone do not settle a directly reported movement.
+
+### Delta settings
+
+A delta dp (`report_type: sum`, a plug's `add_ele`) reports the energy used since its last report, not a meter
+reading: its property is the running total tuya2ildevice adds up (`series: counter`), so a repeated increment (`5`,
+then `5` again) adds twice. By default only an `active` push adds: a passive report is a readback of what the device
+already pushed. A device that never pushes it, and reports it passively only, needs passive reports counted too:
+
+| switch (property) | label | offered when the device has | does |
+|---|---|---|---|
+| `delta_accept_passive` | Count passive reports | a delta dp | a live passive report that carries the dp adds it as well, each one, even one that repeats the last value |
+
+It is the `delta` block's `accept_passive` (default `false`) in an override file, and saves as the cover switches do
+(`{"delta": {"accept_passive": true}}`). One report seen twice with the same Tuya `t` adds once; a readback the host
+asks for (a `get`, on a reconnect) carries no new increment but adds once more, so turn it on only for a device that
+does not push. A reload (an override or a setting changed) keeps the totals.
 
 Retained snapshots/readbacks (`state`, and non-live passive reports) never start motion: their
 control may be the last command. A relevant snapshot reports only the position's resting state

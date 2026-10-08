@@ -39,7 +39,7 @@ from .overrides import SETTINGS_FILE
 
 _LOGGER = logging.getLogger(__name__)
 
-LEVEL = 2                                         # 2: the `cover` settings block (0.3.15)
+LEVEL = 3                                         # 2: the `cover` settings block (0.3.15); 3: the `delta` block
 BASE_URL = "https://raw.githubusercontent.com/3735943886/tuya2ildevice/master/pack/"
 MANIFEST = "manifest.json"
 LEDGER = ".tuya2ildevice_pack.json"

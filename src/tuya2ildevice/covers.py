@@ -47,6 +47,10 @@ class Cover:
     def state_source(self) -> str:
         return self.settings["state_source"] or ("inferred" if self.settings["infer_motion"] else "none")
 
+    def value(self, key: str) -> Any:
+        """A setting as its switch shows it."""
+        return self.state_source if key == "state_source" else self.settings[key]
+
     @property
     def separate_target(self) -> bool:
         return self.setp is not None and (self.cur is None or self.setp.code != self.cur.code)
