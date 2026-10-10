@@ -37,20 +37,20 @@ def _total(outs):
 def test_by_default_only_a_push_adds():
     d = _plug()
     assert _total(d.handle(2, Message("passive", {"17": 5}))) == []
-    assert _total(d.handle(3, Message("active", {"17": 5}))) == [5]
-    assert _total(d.handle(4, Message("active", {"17": 5}))) == [10]   # the same increment again: added again
+    assert _total(d.handle(3, Message("active", {"17": 5}))) == [0.005]
+    assert _total(d.handle(4, Message("active", {"17": 5}))) == [0.010]   # the same increment again: added again
 
 
 def test_accept_passive_adds_every_passive_report_even_a_repeated_value():
     d = _plug({"delta": {"accept_passive": True}})
-    assert [_total(d.handle(n, Message("passive", {"17": 5}))) for n in (2, 3, 4)] == [[5], [10], [15]]
+    assert [_total(d.handle(n, Message("passive", {"17": 5}))) for n in (2, 3, 4)] == [[0.005], [0.010], [0.015]]
     assert _total(d.handle(5, Message("state", {"17": 5}))) == []      # the bridge's merged copy is not a report
-    assert _total(d.handle(6, Message("active", {"17": 2}))) == [17]
+    assert _total(d.handle(6, Message("active", {"17": 2}))) == [0.017]
 
 
 def test_one_report_seen_twice_by_its_tuya_timestamp_adds_once():
     d = _plug({"delta": {"accept_passive": True}})
-    assert _total(d.handle(2, Message("active", {"17": 5, "t": 100}))) == [5]
+    assert _total(d.handle(2, Message("active", {"17": 5, "t": 100}))) == [0.005]
     assert _total(d.handle(3, Message("passive", {"17": 5, "t": 100}))) == []
 
 
@@ -60,7 +60,7 @@ def test_the_switch_saves_the_setting_and_only_a_device_with_a_delta_has_it():
                                                              "label": "Count passive reports"}
     assert d.handle(2, Command("delta_accept_passive", True)) == [
         Value("delta_accept_passive", True), SettingsChanged({"delta": {"accept_passive": True}})]
-    assert _total(d.handle(3, Message("passive", {"17": 5}))) == [5]  # in effect at once
+    assert _total(d.handle(3, Message("passive", {"17": 5}))) == [0.005]  # in effect at once
     assert d.handle(4, Command("delta_accept_passive", False))[-1] == SettingsChanged({})
     assert "delta_accept_passive" not in TuyaDriver(PLUG).descriptor["props"]          # no host to keep it
     no_delta = {**PLUG, "status_range": {}, "local_strategy": strat({"1": ("switch_1", "Boolean")})}
@@ -75,9 +75,9 @@ def test_a_reload_keeps_the_total():
     hub.on_bridge_message(3, "plug1", Message("active", {"17": 5}))
     (save,) = [p for p in hub.on_il(4, "il/plug1/delta_accept_passive/set", "true") if isinstance(p, SaveSettings)]
     pubs = hub.reload({"plug1": save.block})
-    assert any(p.topic == "il/plug1/add_ele" and p.payload == "5" for p in pubs if hasattr(p, "topic"))
+    assert any(p.topic == "il/plug1/add_ele" and p.payload == "0.005" for p in pubs if hasattr(p, "topic"))
     pubs = hub.on_bridge_message(5, "plug1", Message("passive", {"17": 5}))
-    assert [p.payload for p in pubs if p.topic == "il/plug1/add_ele"] == ["10"]
+    assert [p.payload for p in pubs if p.topic == "il/plug1/add_ele"] == ["0.01"]
 
 
 @pytest.mark.parametrize("bad", [{"delta": {"accept_passive": 1}}, {"delta": {"passive": True}}, {"delta": True}])

@@ -165,7 +165,8 @@ is always stopped. Position updates alone do not settle a directly reported move
 
 A delta dp (`report_type: sum`, a plug's `add_ele`) reports the energy used since its last report, not a meter
 reading: its property is the running total tuya2ildevice adds up (`series: counter`), so a repeated increment (`5`,
-then `5` again) adds twice. By default only an `active` push adds: a passive report is a readback of what the device
+then `5` again) adds twice. The total is published in the DP’s native unit with its `scale` applied: for
+`scale: 3` and unit `kWh`, a raw increment of `5` adds `0.005 kWh`. By default only an `active` push adds: a passive report is a readback of what the device
 already pushed. A device that never pushes it, and reports it passively only, needs passive reports counted too:
 
 | switch (property) | label | offered when the device has | does |

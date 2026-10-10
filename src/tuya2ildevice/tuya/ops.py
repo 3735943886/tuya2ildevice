@@ -27,7 +27,7 @@ def validate_enum_write(spec: SpecEnum, value: Any) -> str:
     return value
 
 
-def scale_value(spec: SpecInteger, v: int) -> float:
+def scale_value(spec: SpecInteger, v: float) -> float:
     return v / (10 ** spec.scale)
 
 

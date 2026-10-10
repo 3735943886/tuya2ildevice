@@ -84,8 +84,8 @@ def test_delta_and_event_only_on_active():
     assert d.descriptor["props"]["add_ele"]["series"] == "counter"
     d.handle(0, Connected())
     assert Value("add_ele", 0) in d.handle(1, Message("state", {"17": 84}))          # readback never accumulates
-    assert d.handle(2, Message("active", {"17": 5, "t": 1})) == [Value("add_ele", 5)]
-    assert d.handle(3, Message("active", {"17": 7, "t": 2})) == [Value("add_ele", 12)]
+    assert d.handle(2, Message("active", {"17": 5, "t": 1})) == [Value("add_ele", 0.005)]
+    assert d.handle(3, Message("active", {"17": 7, "t": 2})) == [Value("add_ele", 0.012)]
 
 
 def test_event_fires_on_active_only():

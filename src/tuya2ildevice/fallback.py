@@ -87,7 +87,7 @@ def _plan(code: str, kind: str, spec: Any, rw: bool, r: ResolvedDp, ident: dict)
                       lambda a, args, st: [{"code": code, "value": ops.validate_int_write(spec, args["value"])}])
         if r.report_type == "sum":                                   # an increment per report, not a total
             ident.update(kind="delta", state_class="total_increasing")
-            return mk("sensor", lambda st, slot=None: {"native_value": slot.total if slot else 0.0}, slot_kind="delta")
+            return mk("sensor", lambda st, slot=None: {"native_value": ops.scale_value(spec, slot.total) if slot else 0.0}, slot_kind="delta")
         ident["kind"] = "integer"
         return mk("sensor", lambda st: {"native_value": ops.validate_int_read(spec, st.get(code))})
     if kind == ENUM:

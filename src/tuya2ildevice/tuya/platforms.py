@@ -176,7 +176,7 @@ def sensor(schema: DeviceSchema, env: HostEnv, desc: dict[str, Any]) -> EntityPl
         _units("sensor", schema, env, desc, ident, desc.get("device_class"), spec.unit)
         if delta:
             def read(st, slot=None):
-                return {"native_value": slot.total if slot else 0.0}
+                return {"native_value": ops.scale_value(spec, slot.total) if slot else 0.0}
             return EntityPlan("sensor", desc["key"], ident, {"main": ri}, (code,), read, slot_kind="delta")
         def read(st, slot=None):
             return {"native_value": ops.validate_int_read(spec, st.get(code))}
