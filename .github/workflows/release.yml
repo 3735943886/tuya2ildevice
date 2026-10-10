@@ -11,60 +11,210 @@ name: Release
 
 on:
   push:
-    tags:
-      - "v*.*.*"
+    tags: ["v*.*.*"]
+  pull_request:
+    paths:
+      - ".github/workflows/release.yml"
+      - "hatch_build.py"
+      - "pyproject.toml"
+      - "rust/**"
+      - "rules/**"
+      - "src/**"
+      - "tests/test_native.py"
+      - "tests/test_rules.py"
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
   test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.x"
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test --locked --manifest-path rust/Cargo.toml
-      - run: pip install -e ".[test]"
-      - run: python -m pytest -q
-
-  build:
-    needs: test
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-14]
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.x"
+          python-version: "3.13"
       - uses: dtolnay/rust-toolchain@stable
-      - run: pip install cibuildwheel build
-      - run: python -m cibuildwheel --output-dir dist
-      - if: runner.os == 'Linux'
-        run: python -m build --sdist
+      - run: cargo test --locked --manifest-path rust/Cargo.toml
+      - run: cargo clippy --locked --manifest-path rust/Cargo.toml --all-targets -- -D warnings
+      - run: pip install -e ".[test]"
+      - run: python -m pytest -q
+
+  build:
+    name: Wheel (${{ matrix.id }})
+    needs: test
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: manylinux-x86_64
+            os: ubuntu-24.04
+            arch: x86_64
+            build: cp311-manylinux_x86_64
+            target: x86_64-unknown-linux-gnu
+            libc: manylinux
+          - id: manylinux-i686
+            os: ubuntu-24.04
+            arch: i686
+            build: cp311-manylinux_i686
+            target: i686-unknown-linux-gnu
+            libc: manylinux
+          - id: manylinux-aarch64
+            os: ubuntu-24.04-arm
+            arch: aarch64
+            build: cp311-manylinux_aarch64
+            target: aarch64-unknown-linux-gnu
+            libc: manylinux
+          - id: manylinux-armv7l
+            os: ubuntu-24.04
+            arch: armv7l
+            build: cp311-manylinux_armv7l
+            target: armv7-unknown-linux-gnueabihf
+            libc: manylinux
+          - id: musllinux-x86_64
+            os: ubuntu-24.04
+            arch: x86_64
+            build: cp311-musllinux_x86_64
+            target: x86_64-unknown-linux-musl
+            libc: musllinux
+          - id: musllinux-i686
+            os: ubuntu-24.04
+            arch: i686
+            build: cp311-musllinux_i686
+            target: i686-unknown-linux-musl
+            libc: musllinux
+          - id: musllinux-aarch64
+            os: ubuntu-24.04-arm
+            arch: aarch64
+            build: cp311-musllinux_aarch64
+            target: aarch64-unknown-linux-musl
+            libc: musllinux
+          - id: musllinux-armv7l
+            os: ubuntu-24.04
+            arch: armv7l
+            build: cp311-musllinux_armv7l
+            target: armv7-unknown-linux-musleabihf
+            libc: musllinux
+          - id: macos-x64
+            os: macos-15-intel
+            arch: x86_64
+            build: cp311-macosx_x86_64
+            target: x86_64-apple-darwin
+            libc: native
+          - id: macos-arm64
+            os: macos-15
+            arch: arm64
+            build: cp311-macosx_arm64
+            target: aarch64-apple-darwin
+            libc: native
+          - id: windows-x86
+            os: windows-2022
+            arch: x86
+            build: cp311-win32
+            target: i686-pc-windows-msvc
+            libc: native
+          - id: windows-x64
+            os: windows-2022
+            arch: AMD64
+            build: cp311-win_amd64
+            target: x86_64-pc-windows-msvc
+            libc: native
+          - id: windows-arm64
+            os: windows-11-arm
+            arch: ARM64
+            build: cp311-win_arm64
+            target: aarch64-pc-windows-msvc
+            libc: native
+    env:
+      CIBW_BUILD: ${{ matrix.build }}
+      CIBW_ARCHS: ${{ matrix.arch }}
+      CIBW_ENVIRONMENT_MACOS: >-
+        MACOSX_DEPLOYMENT_TARGET=11.0 TUYA_ENGINE_TARGET=${{ matrix.target }}
+      CIBW_ENVIRONMENT_WINDOWS: TUYA_ENGINE_TARGET=${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Enable ARMv7 container emulation
+        if: matrix.arch == 'armv7l'
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm
+      - run: pip install cibuildwheel==4.3.0
+      - name: Install Linux cross linker
+        if: runner.os == 'Linux'
+        run: pip install cargo-zigbuild==0.23.4 ziglang==0.14.1
+      - name: Cross-compile Linux shared library
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          TUYA_BUILD_TARGET: ${{ matrix.target }}
+          TUYA_BUILD_LIBC: ${{ matrix.libc }}
+        run: |
+          set -euo pipefail
+          build_target="$TUYA_BUILD_TARGET"
+          if [ "$TUYA_BUILD_LIBC" = manylinux ]; then
+            build_target="${build_target}.2.28"
+          else
+            # musl defaults to static CRT; ctypes needs a dynamically loadable .so.
+            export RUSTFLAGS="-C target-feature=-crt-static"
+          fi
+          cargo zigbuild --locked --release --manifest-path rust/Cargo.toml --target "$build_target"
+          mkdir -p prebuilt
+          cp "rust/target/$TUYA_BUILD_TARGET/release/libtuya_rule_engine.so" prebuilt/
+      - name: Package, repair and test installed wheel
+        run: python -m cibuildwheel --output-dir dist
       - uses: actions/upload-artifact@v7
         with:
-          name: dist-${{ matrix.os }}
-          path: dist/
+          name: dist-${{ matrix.id }}
+          path: dist/*.whl
+          if-no-files-found: error
+
+  sdist:
+    needs: test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - run: pip install build
+      - run: python -m build --sdist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist-sdist
+          path: dist/*.tar.gz
+          if-no-files-found: error
 
   publish:
-    needs: build
-    runs-on: ubuntu-latest
+    # PRs and manual runs build artifacts only. Publishing requires a pushed version tag.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [build, sdist]
+    runs-on: ubuntu-24.04
     environment:
       name: pypi
       url: https://pypi.org/p/tuya2ildevice
     permissions:
-      id-token: write   # Trusted Publishing: no PYPI_API_TOKEN secret needed
+      id-token: write
     steps:
       - uses: actions/download-artifact@v8
         with:
           pattern: dist-*
           merge-multiple: true
           path: dist/
+      - run: pip install twine
+      - run: python -m twine check --strict dist/*
       - uses: pypa/gh-action-pypi-publish@release/v1

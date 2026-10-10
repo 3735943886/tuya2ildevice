@@ -401,3 +401,19 @@ is installed. The spec repository (`../ildevice`, or `$ILDEVICE`) supplies the s
 (commands, wire values, topics) read directly from its checkout; those tests are skipped if it is not there. `tests/chain/`
 compares every Home Assistant core tuya fixture with core's entity snapshots through an IL host's HA-free planner
 (needs that host's `ildevice.core` on `sys.path`; not collected without it).
+
+## Release builds
+
+[Release workflow](.github/workflows/release.yml) builds and tests 13 platform wheels:
+
+| Platform | Architectures |
+| --- | --- |
+| Linux manylinux (glibc) | ARMv7, ARM64, x86, x64 |
+| Linux musllinux (musl) | ARMv7, ARM64, x86, x64 |
+| macOS | ARM64, x64 |
+| Windows | ARM64, x86, x64 |
+
+Push a `v*.*.*` version tag to publish the wheels and source archive to PyPI after
+all jobs pass. PRs affecting release inputs and manual workflow runs build artifacts
+without publishing. Configure PyPI Trusted Publishing for `release.yml` and the
+`pypi` environment. Users installing a supported wheel need no Rust toolchain.

@@ -188,8 +188,23 @@ python -m build
 ```
 
 The custom Hatch hook builds the release library and produces a `py3-none`
-platform wheel. Release CI uses cibuildwheel for Linux x86_64, Windows AMD64 and
-macOS runner architecture, and emits a source distribution. Local Linux wheels
+platform wheel. Release CI builds 13 wheels: Linux glibc and musl each on ARMv7,
+ARM64, x86 and x64; macOS on ARM64 and x64; Windows on ARM64, x86 and x64.
+Linux libraries are cross-compiled with cargo-zigbuild, then bundled and repaired
+inside manylinux/musllinux containers. ARMv7 container tests use QEMU. Windows
+and macOS build for an explicit Rust target so the library matches the wheel.
+Each installed wheel runs the native driver and rule-loader tests; the separate
+source test job runs the full suite. A source distribution is built once.
+
+Push a version tag such as `v0.4.0` to build, test and publish all artifacts to PyPI
+using the `pypi` Trusted Publishing environment. Pull requests affecting the
+release inputs and `workflow_dispatch` build and test without publishing.
+PyPI's Trusted Publisher must reference this repository, `release.yml` and the
+`pypi` environment. No release tag is created by the workflow.
+
+`TUYA_ENGINE_BUNDLED_LIBRARY` lets the build hook package a prebuilt library
+(relative paths resolve against the project root). Without it Cargo builds the
+library; `TUYA_ENGINE_TARGET` or `CARGO_BUILD_TARGET` selects an explicit target. Local Linux wheels
 are tagged for their local platform; manylinux repair happens in release CI.
 
 Existing HA core/quirk/action golden tests exercise the Rust-backed APIs. An

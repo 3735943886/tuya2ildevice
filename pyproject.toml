@@ -42,18 +42,23 @@ pythonpath = ["src"]
 required-version = ">=0.16"      # CI pins 0.16.8; older ones disagree on some rules
 
 [tool.cibuildwheel]
-build = "cp310-*"
-skip = "*-musllinux_* *-win32 *-manylinux_i686"
-test-requires = ["pytest", "pytest-asyncio", "jsonschema", "paho-mqtt", "tuya-device-sharing-sdk==0.2.15", "cryptography"]
-test-command = "python -m pytest {project}/tests --override-ini=pythonpath= -q"
+# The C ABI is independent of Python's ABI: one py3-none wheel per platform.
+build = "cp311-*"
+test-requires = ["pytest"]
+# jsonschema's rpds dependency has no ARMv7 musl wheel; schema parity runs in the full test job.
+test-command = 'python -m pytest {project}/tests/test_native.py {project}/tests/test_rules.py --override-ini=pythonpath= -q -k "not canonical_rule_pack_validates_against_its_schema"'
 
 [tool.cibuildwheel.linux]
-before-all = "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal"
-environment = { PATH = "$HOME/.cargo/bin:$PATH" }
-archs = ["x86_64"]
+environment = { TUYA_ENGINE_BUNDLED_LIBRARY = "prebuilt/libtuya_rule_engine.so" }
+manylinux-x86_64-image = "manylinux_2_28"
+manylinux-i686-image = "manylinux_2_28"
+manylinux-aarch64-image = "manylinux_2_28"
+manylinux-armv7l-image = "manylinux_2_31"
+# Rust is cross-compiled on the runner first, including 32-bit musl targets.
+musllinux-x86_64-image = "musllinux_1_2"
+musllinux-i686-image = "musllinux_1_2"
+musllinux-aarch64-image = "musllinux_1_2"
+musllinux-armv7l-image = "musllinux_1_2"
 
 [tool.cibuildwheel.macos]
-archs = ["auto"]
-
-[tool.cibuildwheel.windows]
-archs = ["AMD64"]
+environment = { MACOSX_DEPLOYMENT_TARGET = "11.0" }

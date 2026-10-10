@@ -8,3 +8,5 @@ venv/
 .coverage
 .DS_Store
 /rust/target/
+
+/prebuilt/

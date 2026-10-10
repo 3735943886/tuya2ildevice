@@ -14,13 +14,26 @@ class CustomBuildHook(BuildHookInterface):
             return
         root = Path(self.root)
         manifest = root / 'rust/Cargo.toml'
-        subprocess.run(['cargo', 'build', '--locked', '--release', '--manifest-path', str(manifest)], check=True)
         target = Path(os.environ.get('CARGO_TARGET_DIR', root / 'rust/target'))
         if not target.is_absolute():
             target = root / target
         name = 'tuya_rule_engine.dll' if sys.platform == 'win32' else 'libtuya_rule_engine.dylib' if sys.platform == 'darwin' else 'libtuya_rule_engine.so'
+        supplied = os.environ.get('TUYA_ENGINE_BUNDLED_LIBRARY')
+        triple = os.environ.get('TUYA_ENGINE_TARGET') or os.environ.get('CARGO_BUILD_TARGET')
+        if supplied:
+            library = Path(supplied)
+            if not library.is_absolute():
+                library = root / library
+        else:
+            command = ['cargo', 'build', '--locked', '--release', '--manifest-path', str(manifest)]
+            if triple:
+                command.extend(['--target', triple])
+            subprocess.run(command, check=True)
+            library = target / triple / 'release' / name if triple else target / 'release' / name
+        if not library.is_file():
+            raise FileNotFoundError(f'Native library was not built: {library}')
         build_data['pure_python'] = False
         platform = sysconfig.get_platform().replace('-', '_').replace('.', '_')
         build_data['tag'] = 'py3-none-' + platform
-        build_data['force_include'][str(target / 'release' / name)] = 'tuya2ildevice/' + name
+        build_data['force_include'][str(library)] = 'tuya2ildevice/' + name
         build_data['force_include'][str(root / 'rules')] = 'tuya2ildevice/rules'
