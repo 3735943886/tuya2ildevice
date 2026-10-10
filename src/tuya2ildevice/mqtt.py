@@ -219,7 +219,7 @@ class Hub:
         return pubs
 
     def reload(self, overrides: dict | None, converters: dict | None = None,
-               converter_types: dict | None = None) -> list:
+               converter_types: dict | None = None, *, rules: dict | None = None) -> list:
         """Apply new user overrides (see overrides.py), and with them new code converters (`converters` by product or
         device id, `converter_types` by name; each left as it was when None). A device whose descriptor, override
         block, code converters or settings changed gets a fresh driver: its removed properties are cleared (M-11), the
@@ -228,6 +228,8 @@ class Hub:
         (changing nothing) if the overrides are invalid."""
         kw = {**self._kw, "overrides": overrides}
         kw.update({k: v for k, v in (("converters", converters), ("converter_types", converter_types)) if v is not None})
+        if rules is not None:
+            kw["rules"] = rules
         fresh = {i: TuyaDriver(d, **kw) for i, d in self._devices.items()}          # all or nothing
         pubs: list = []
         for i, new in fresh.items():

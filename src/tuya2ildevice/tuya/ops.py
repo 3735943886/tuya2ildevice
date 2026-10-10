@@ -1,75 +1,28 @@
-"""Closed registry of value ops (spec section 5). Each op: read(raw)->value|UNKNOWN, write(value)->raw|raises."""
-from __future__ import annotations
+"""Compatibility signatures for the Rust value-operation registry."""
+from dataclasses import asdict
 
-from typing import Any
-
-from .model import SpecEnum, SpecInteger
+from ..native import call
 from .runtime import WriteRejected
 
 
-def validate_bool_read(raw: Any) -> Any:
-    return raw if raw is not None and raw in (True, False) else None   # 0/1 pass as-is (P-12)
+def _op(name, value=None, spec=None, **kwargs):
+    try:
+        return call('value_op', name=name, value=value, spec=asdict(spec) if spec is not None else {}, **kwargs)
+    except ValueError as error:
+        raise WriteRejected(str(error)) from error
 
 
-def validate_bool_write(value: Any) -> bool:
-    if not isinstance(value, bool):
-        raise WriteRejected(f"Invalid boolean value `{value}` ({type(value).__name__})")
-    return value
-
-
-def validate_enum_read(spec: SpecEnum, raw: Any) -> Any:
-    return raw if raw is not None and raw in spec.range else None
-
-
-def validate_enum_write(spec: SpecEnum, value: Any) -> str:
-    if not isinstance(value, str) or value not in spec.range:
-        raise WriteRejected(f"Invalid enum value `{value}`")
-    return value
-
-
-def scale_value(spec: SpecInteger, v: float) -> float:
-    return v / (10 ** spec.scale)
-
-
-def scaled_range(spec: SpecInteger) -> tuple[float, float]:
-    """(min, max) of an Integer dp, scaled."""
-    return scale_value(spec, spec.min), scale_value(spec, spec.max)
-
-
-def validate_int_read(spec: SpecInteger, raw: Any) -> float | None:
-    # bool is an int subclass: passes (core parity); floats are rejected
-    if isinstance(raw, int) and spec.min <= raw <= spec.max:
-        v = scale_value(spec, raw)
-        return scale_value(spec, spec.max) - v if spec.inverted else v    # InvertedIntegerTypeInformationEx
-    return None
-
-
-def validate_int_write(spec: SpecInteger, value: Any) -> int:
-    if not isinstance(value, (int, float)):
-        raise WriteRejected(f"Invalid numeric value `{value}` ({type(value).__name__})")
-    if spec.inverted:
-        value = scale_value(spec, spec.max) - value
-    raw = round(value * (10 ** spec.scale))   # banker's rounding, like core
-    if not (spec.min <= raw <= spec.max):
-        raise WriteRejected(f"Value `{raw}` out of range: ({spec.min}-{spec.max})")
-    return raw
-
-
-def remap(value: float, from_min: float, from_max: float, to_min: float, to_max: float, reverse: bool = False) -> float:
-    """RemapHelper.remap_value: linear map, `reverse` flips the SOURCE about its range first."""
-    if reverse:
-        value = from_max - value + from_min
-    return ((value - from_min) / (from_max - from_min)) * (to_max - to_min) + to_min
-
-
-def remap_read(spec: SpecInteger, raw: Any, target_min: float, target_max: float, reverse: bool = False) -> int | None:
-    """Percentage wrappers: validate_int -> remap(scaled range -> target) -> round (banker's)."""
-    v = validate_int_read(spec, raw)
-    if v is None:
-        return None
-    return round(remap(v, *scaled_range(spec), target_min, target_max, reverse))
-
-
-def remap_write(spec: SpecInteger, value: Any, target_min: float, target_max: float, reverse: bool = False) -> int:
-    """Inverse: remap(target -> scaled range) then validate_int write."""
-    return validate_int_write(spec, remap(value, target_min, target_max, *scaled_range(spec), reverse))
+def validate_bool_read(raw): return _op('validate_bool_read', raw)
+def validate_bool_write(value): return _op('validate_bool_write', value)
+def validate_enum_read(spec, raw): return _op('validate_enum_read', raw, spec)
+def validate_enum_write(spec, value): return _op('validate_enum_write', value, spec)
+def scale_value(spec, value): return _op('scale_value', value, spec)
+def scaled_range(spec): return tuple(_op('scaled_range', spec=spec))
+def validate_int_read(spec, raw): return _op('validate_int_read', raw, spec)
+def validate_int_write(spec, value): return _op('validate_int_write', value, spec)
+def remap(value, from_min, from_max, to_min, to_max, reverse=False):
+    return _op('remap', value, range=[from_min, from_max, to_min, to_max], reverse=reverse)
+def remap_read(spec, raw, target_min, target_max, reverse=False):
+    return _op('remap_read', raw, spec, target=[target_min, target_max], reverse=reverse)
+def remap_write(spec, value, target_min, target_max, reverse=False):
+    return _op('remap_write', value, spec, target=[target_min, target_max], reverse=reverse)

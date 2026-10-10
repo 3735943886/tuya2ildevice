@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from . import PACKAGE_DIR, load_json, standard
+from . import PACKAGE_DIR
 from .model import DeviceSchema, ResolvedDp
 
 TABLES = PACKAGE_DIR / "tables"
@@ -63,24 +63,14 @@ def new_slot(plan: EntityPlan) -> StateSlot | None:
 
 def on_update(plan: EntityPlan, slot: StateSlot | None, changed: list[str] | None,
               dp_timestamps: dict[str, int] | None, status: dict[str, Any]) -> UpdateResult:
-    """Spec 7: `changed is None` (online/offline) always writes state; own_dps platforms write iff a
-    dependency changed; delta accumulates first (core DeltaIntegerWrapper.skip_update)."""
-    if changed is None:
-        return UpdateResult(True)
-    if plan.slot_kind == "event":
-        # fires iff own code changed and the event reads truthy (repeats fire; initial status never fires)
-        code = plan.depends_on[0]
-        ev = plan.read(status)["event"] if code in changed else None
-        return UpdateResult(True, ev) if ev else UpdateResult(False)
-    if plan.slot_kind == "delta":
-        code = plan.depends_on[0]
-        if code not in changed or dp_timestamps is None or (ts := dp_timestamps.get(code)) is None \
-                or ts == slot.last_ts or (raw := status.get(code)) is None:
-            return UpdateResult(False)
-        slot.total += float(raw)   # core adds the RAW (unscaled) value, not the scaled one
-        slot.last_ts = ts
-        return UpdateResult(True)
-    return UpdateResult(True if plan.update_all else any(c in changed for c in plan.depends_on))
+    from dataclasses import asdict
+
+    from ..native import call
+    result = call("on_update", plan=plan._native, slot=asdict(slot) if slot else None,
+                  changed=changed, timestamps=dp_timestamps, status=status)
+    if slot and result["slot"] is not None:
+        slot.total, slot.last_ts = result["slot"]["total"], result["slot"]["last_ts"]
+    return UpdateResult(result["write_state"], tuple(result["fire"]) if result["fire"] else None)
 
 
 @dataclass
@@ -90,7 +80,9 @@ class Plan:
 
 @functools.cache
 def load_table(platform: str) -> dict:
-    return standard.apply(platform, load_json("tables", f"{platform}.json")["tables"])
+    from ..native import rules
+    group = next(g for g in rules()["platforms"] if g["platform"] == platform)
+    return {group["table"]: group["categories"]}
 
 
 def preload_tables() -> None:
@@ -118,14 +110,32 @@ def builder(platform: str, table: str):
 
 
 def classify(schema: DeviceSchema, env: HostEnv | None = None, platforms: tuple[str, ...] | None = None) -> Plan:
-    env = env or HostEnv()
-    ents: list[EntityPlan] = []
-    for platform, (table, fn) in BUILDERS.items():
-        if platforms and platform not in platforms:
-            continue
-        descs = load_table(platform).get(table, {}).get(schema.category, [])
-        for desc in ([descs] if isinstance(descs, dict) else descs):
-            plan = fn(schema, env, desc)
-            if plan is not None:
-                ents.append(plan)
-    return Plan(ents)
+    from dataclasses import asdict
+
+    from ..native import call
+    raw = call("classify", device=asdict(schema), env=asdict(env or HostEnv()), platforms=platforms)
+    return Plan([from_native(p) for p in raw])
+
+
+def from_native(raw):
+    from ..native import call
+    from .model import DpSpec, ResolvedDp
+    roles = {name: ResolvedDp(r["code"], DpSpec(r["code"], r["kind"], r["spec"]).parse(), r["kind"], r["report_type"])
+             for name, r in raw["roles"].items()}
+    def read(status, slot=None):
+        result = call("read", plan=raw, status=status, total=slot.total if slot else 0)
+        for name in ("hs_color", "event"):
+            if isinstance(result.get(name), list):
+                result[name] = tuple(result[name])
+        return result
+    def write(action, args, status):
+        try:
+            return call("write", plan=raw, action=action, args=args, status=status)
+        except ValueError as error:
+            raise WriteRejected(str(error)) from error
+    plan = EntityPlan(raw["platform"], raw["key"], raw["identity"], roles, tuple(raw["depends_on"]),
+                      None if raw["platform"] == "button" else read,
+                      None if raw["platform"] in ("sensor", "binary_sensor", "event") else write,
+                      raw["slot_kind"], raw["update_all"])
+    plan._native = raw
+    return plan

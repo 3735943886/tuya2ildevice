@@ -1,0 +1,35 @@
+{
+ "tables": {
+  "FANS": {
+   "cs": {
+    "$desc": "TuyaFanEntityDescription",
+    "key": ""
+   },
+   "fs": {
+    "$desc": "TuyaFanEntityDescription",
+    "key": ""
+   },
+   "fsd": {
+    "$desc": "TuyaFanEntityDescription",
+    "key": ""
+   },
+   "fskg": {
+    "$desc": "TuyaFanEntityDescription",
+    "key": ""
+   },
+   "kj": {
+    "$desc": "TuyaFanEntityDescription",
+    "key": ""
+   },
+   "ks": {
+    "$desc": "TuyaFanEntityDescription",
+    "key": ""
+   }
+  },
+  "_TUYA_TO_HA_DIRECTION_MAPPINGS": {
+   "$TuyaFanDirection.FORWARD": "forward",
+   "$TuyaFanDirection.REVERSE": "reverse"
+  }
+ },
+ "aliases": []
+}

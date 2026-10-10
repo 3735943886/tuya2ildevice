@@ -153,8 +153,8 @@ class Runner:
         return done
 
     def reload(self, overrides: dict | None, converters: dict | None = None,
-               converter_types: dict | None = None) -> None:
-        self.run(self.hub.reload(overrides, converters, converter_types))
+               converter_types: dict | None = None, *, rules: dict | None = None) -> None:
+        self.run(self.hub.reload(overrides, converters, converter_types, rules=rules))
         failed, self._failed = self._failed, {}
         for device_id, record in failed.items():
             try:

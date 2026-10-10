@@ -1,0 +1,174 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:tuya2ildevice:rule-pack:1",
+  "title": "Tuya portable rule pack version 1",
+  "type": "object",
+  "required": [
+    "version",
+    "platforms",
+    "layouts",
+    "quirks",
+    "units",
+    "host_units",
+    "roles",
+    "maps",
+    "features",
+    "constants",
+    "cover_defaults",
+    "cover_switches",
+    "motion_defaults",
+    "motion_property",
+    "strategies"
+  ],
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "platforms": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "platform",
+          "table",
+          "categories"
+        ],
+        "properties": {
+          "platform": {
+            "type": "string"
+          },
+          "table": {
+            "type": "string"
+          },
+          "categories": {
+            "type": "object"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "layouts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/layout"
+        }
+      }
+    },
+    "quirks": {
+      "type": "object"
+    },
+    "units": {
+      "type": "object"
+    },
+    "host_units": {
+      "type": "object"
+    },
+    "roles": {
+      "type": "object"
+    },
+    "rw_roles": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "role_order": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "maps": {
+      "type": "object"
+    },
+    "features": {
+      "type": "object"
+    },
+    "constants": {
+      "type": "object"
+    },
+    "cover_defaults": {
+      "type": "object"
+    },
+    "cover_switches": {
+      "type": "object"
+    },
+    "motion_defaults": {
+      "type": "object"
+    },
+    "motion_property": {
+      "type": "object"
+    },
+    "strategies": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "wind": {
+      "type": "object"
+    },
+    "electricity": {
+      "type": "object"
+    },
+    "meter_alarms": {
+      "type": "object"
+    },
+    "overrides": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "layout": {
+      "type": "object",
+      "required": [
+        "name",
+        "definition"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "definition": {
+          "type": "object"
+        },
+        "read": {
+          "type": "string"
+        },
+        "action": {
+          "type": "string"
+        },
+        "arg": {
+          "type": "string"
+        },
+        "when": {
+          "type": "string"
+        },
+        "transform": {
+          "enum": [
+            "brightness",
+            "kelvin",
+            "not",
+            "color",
+            "color_mode",
+            "climate_on",
+            "climate_mode"
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

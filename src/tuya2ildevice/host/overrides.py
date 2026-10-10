@@ -1,15 +1,15 @@
 """User overrides as files: a `custom_converters/` directory (or one `.json` file), loaded and followed as it changes.
 
-- `*.json`: override mappings (see `tuya2ildevice.overrides`), deep-merged in filename order, so a later file (say
-  `99_local.json`) refines an earlier one.
+- `*.json`: partial rule objects loaded, merged and validated by Rust, over bundled defaults.
+  Legacy product/device mappings are accepted for compatibility.
 - `*.py`: code converters. A file defines ``CONVERTERS = {"name": factory}`` (`factory(config) -> Converter`, a
   `Converter` subclass taking its config works) and an override block turns one on for a product or a device with
   ``{"converters": {"name": {...config...}}}``. The code runs in-process: trust it like any plugin.
 
-`SETTINGS_FILE` (``zz_settings.json``, loaded last by its name) holds the settings written through IL, a block per
+`SETTINGS_FILE` (``zz_settings.json``, always loaded last) holds the settings written through IL, a block per
 device (`OverrideWatcher.save_settings`); it can be edited like any other file.
 
-`manifest.json` and files starting with `.` or `_` are skipped. Nothing here raises for a bad file: a file that cannot
+Legacy `manifest.json`, `schema.json` and files starting with `.` or `_` are skipped. Nothing here raises for a bad file: a file that cannot
 be read, parsed or imported is left out and reported in `OverrideSet.warnings`, and the rest still loads.
 """
 
@@ -26,16 +26,18 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ..native import _call, rules
 from ..overrides import OverrideError, merge_all
 from .runner import Runner
 
 _LOGGER = logging.getLogger(__name__)
-_SKIP = {"manifest.json"}
-SETTINGS_FILE = "zz_settings.json"               # after the pack's (`00_pack_*`) and the user's files, by name
+_SKIP = {"manifest.json", "schema.json"}
+SETTINGS_FILE = "zz_settings.json"               # always loaded after user files
 
 
 @dataclass
 class OverrideSet:
+    rules: dict | None = None
     overrides: dict = field(default_factory=dict)
     converter_types: dict = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
@@ -76,24 +78,25 @@ def _load_py(p: Path) -> tuple[dict, str | None]:
 def load_overrides(path: str | Path) -> OverrideSet:
     """Read a directory (or one `.json` file) of overrides and converters. Never raises for a bad file."""
     out = OverrideSet()
-    mappings: list[dict] = []
-    for p in _files(Path(path)):
+    paths = _files(Path(path))
+    result = _call({'op': 'load_rules', 'base': rules(), 'paths': [str(path)] if Path(path).exists() else [],
+                    'legacy_overrides': True, 'tolerant': True})
+    out.rules = result['rules']
+    out.overrides = out.rules.get('overrides', {})
+    out.warnings.extend(result['warnings'])
+    for p in paths:
+        if p.suffix != '.py':
+            continue
         try:
-            if p.suffix == ".json":
-                data = json.loads(p.read_text("utf-8"))
-                if not isinstance(data, dict):
-                    raise ValueError("expected an object keyed by product or device id")
-                mappings.append(data)
-            else:
-                types, warn = _load_py(p)
-                if warn:
-                    out.warnings.append(warn)
-                for name in types.keys() & out.converter_types.keys():
-                    out.warnings.append(f"{p.name}: converter {name!r} replaces one from an earlier file")
-                out.converter_types.update(types)
+            types, warn = _load_py(p)
+            if warn:
+                out.warnings.append(warn)
+            for name in types.keys() & out.converter_types.keys():
+                out.warnings.append(f"{p.name}: converter {name!r} replaces one from an earlier file")
+            out.converter_types.update(types)
         except (OSError, ValueError) as e:
             out.warnings.append(f"{p.name}: {e}")
-    out.overrides = merge_all(mappings)
+
     return out
 
 
@@ -163,7 +166,7 @@ class OverrideWatcher:
         if self.runner is None:
             return
         try:
-            self.runner.reload(loaded.overrides, None, loaded.converter_types)
+            self.runner.reload(loaded.overrides, None, loaded.converter_types, rules=loaded.rules)
         except OverrideError as e:
             _LOGGER.warning("overrides in %s not applied: %s", self.path, e)
 
@@ -195,10 +198,15 @@ class OverrideWatcher:
             data = json.loads(path.read_text("utf-8"))       # a file that does not parse is left for its owner to fix
             if not isinstance(data, dict):
                 raise ValueError(f"{path}: expected an object keyed by device id")
+        if 'overrides' not in data:
+            data = {'overrides': data}  # migrate legacy settings on the next save
+        entries = data['overrides']
+        if not isinstance(entries, dict):
+            raise TypeError(f'{path}: overrides must be an object')
         if block:
-            data[device_id] = block
+            entries[device_id] = block
         else:
-            data.pop(device_id, None)
+            entries.pop(device_id, None)
         tmp = path.with_name(f".{path.name}.tmp")             # a dot file: never loaded
         tmp.write_text(json.dumps(data, indent=2, sort_keys=True, ensure_ascii=False) + "\n", "utf-8")
         os.replace(tmp, path)

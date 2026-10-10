@@ -1,422 +1,175 @@
-"""`TuyaDriver`: the sans-IO state machine for one Tuya device (il.md section 8).
-
-    driver = TuyaDriver(device)              # a tuyadevices.json / Tuya cloud device dict
-    driver.descriptor                        # the ildevice descriptor
-    outs = driver.handle(now, Connected())
-    outs = driver.handle(now, Message("active", {"1": True}))            # -> [Value("switch_1", True)]
-    outs = driver.handle(now, Command("switch_1", "off"))                # -> [SendMessage("set", {"dps": {"1": False}})]
-
-It reads no clock and does no I/O; the host feeds it already-decoded dp:value maps and carries out what it returns.
-"""
+"""Thin Python facade over the Rust sans-IO driver and explicit plugin callbacks."""
 from __future__ import annotations
 
-from collections.abc import Sequence
-from typing import Any
+import logging
+from dataclasses import asdict
+from types import SimpleNamespace
 
-from . import covers as cv
-from . import deltas as dl
-from . import overrides as ov
-from .assemble import UNSUPPORTED, Assembly, Binding, assemble
-from .checks import Rejected, check_command
-from .converters import BUILTIN, Converter, CoverReport, as_result
-from .fallback import unused_plans
-from .io import (
-    Absent,
-    CancelTimer,
-    Command,
-    Connected,
-    Descriptor,
-    Disconnected,
-    Event,
-    Message,
-    Reject,
-    SendMessage,
-    SetTimer,
-    SettingsChanged,
-    Timer,
-    Value,
-)
-from .tuya import (
-    load_json,
-    platforms,  # noqa: F401  (registers the platform builders)
-)
-from .tuya.adapter import Adapter, NoWritePath
-from .tuya.model import DeviceSchema, DpSpec, SchemaError
-from .tuya.quirks import apply_quirk, apply_status_quirk, device_info, quirk_for
-from .tuya.runtime import (
-    ActionDPCodeNotFound,
-    EntityPlan,
-    HostEnv,
-    WriteRejected,
-    classify,
-    on_update,
-)
-
-_HOST_UNITS = load_json("data", "host_units.json")
-_MISSING = object()
-_TIMER = "c{}:{}"                                    # a converter's timer, as the host sees it: by converter index
+from . import io
+from .converters import Converter, as_result
+from .native import _call, register_rules
+from .native import rules as default_rules
+from .overrides import OverrideError, merge_all
+from .tuya.model import DeviceSchema, DpSpec
+from .tuya.runtime import HostEnv
 
 
-def default_env() -> HostEnv:
-    """Home Assistant's per-device-class allowed units, which the unit policy needs (spec 5.3)."""
-    return HostEnv(allowed_units=_HOST_UNITS)
+def schema_of(device):
+    """Compatibility DTO constructor; native conversion takes the raw device JSON."""
+    def specs(table, report):
+        return {k: DpSpec(k, v['type'], v.get('values'), v.get('report_type') if report else None)
+                for k, v in (table or {}).items()}
+    return DeviceSchema(device['id'], device.get('category', ''), device.get('product_id', ''),
+                        device.get('name', ''), device.get('product_name', ''), bool(device.get('online', True)),
+                        specs(device.get('function'), False), specs(device.get('status_range'), True),
+                        dict(device.get('status') or {}))
 
 
-def schema_of(device: dict) -> DeviceSchema:
-    def specs(m: dict | None, with_report: bool) -> dict[str, DpSpec]:
-        return {k: DpSpec(k, v["type"], v.get("values"), v.get("report_type") if with_report else None)
-                for k, v in (m or {}).items()}
-    return DeviceSchema(device["id"], device.get("category", ""), device.get("product_id", ""), device.get("name", ""),
-                        device.get("product_name", ""), bool(device.get("online", True)),
-                        specs(device.get("function"), False), specs(device.get("status_range"), True),
-                        dict(device.get("status") or {}))
+def default_env():
+    from .native import rules
+    return HostEnv(allowed_units=rules()['host_units'])
 
 
-def _dps_of(payload: Any) -> tuple[dict[str, Any], Any]:
-    """(dps, t): `payload` is already a flat `{dp: value}` map (the host decoded whatever envelope the bridge's
-    wire payload used); `t` is Tuya's own event timestamp, mixed into that same flat map, not a wrapper key."""
-    if not isinstance(payload, dict):
-        return {}, None
-    return {str(k): v for k, v in payload.items() if k != "t"}, payload.get("t")
-
-
-def descriptor_of(device: dict, **kwargs: Any) -> dict:
-    """The ildevice descriptor of a Tuya device record (what `TuyaDriver(device).descriptor` is)."""
+def descriptor_of(device, **kwargs):
     return TuyaDriver(device, **kwargs).descriptor
 
 
+_TYPES = {name.lower().replace('_', ''): getattr(io, name) for name in
+          ('Descriptor', 'Value', 'Absent', 'Event', 'SendMessage', 'SetTimer', 'CancelTimer', 'Reject', 'SettingsChanged')}
+_INPUT_TYPES = {'Connected': 'connected', 'Disconnected': 'disconnected', 'Message': 'message', 'Command': 'command', 'Timer': 'timer'}
+
+
+def _input(inp):
+    kind = _INPUT_TYPES.get(type(inp).__name__)
+    return {'type': kind, **asdict(inp)} if kind else {'type': 'unknown'}
+
+
+def _namespace(value):
+    if isinstance(value, dict):
+        return SimpleNamespace(**{k: _namespace(v) for k, v in value.items()})
+    if isinstance(value, list):
+        return [_namespace(v) for v in value]
+    return value
+
+
 class TuyaDriver:
-    """`device`: id, category, product_id, name, function, status_range, local_strategy, status (Tuya cloud record).
-    `dpmap`: extra ``{dp id: code}`` for a device that has no `local_strategy`.
-    `overrides`: user overrides (see `overrides.py`), a ``{product_id or device id: block}`` mapping.
-    `expose_unused`: give every dp no platform table claimed a property of its own; off by default, which is what Home Assistant core's tuya integration does.
-    `allow_hazardous`: also offer writes for a garage door or gate cover (il.md S-1); off by default.
-    `converter_types`: extra named converters (``{name: factory(config) -> Converter}``, e.g. from a user's `.py`
-    files) that an override block can name in `converters`, next to the built-in ones.
-    `use_quirks`: the built-in quirks; on by default.
-    `device_settings`: offer the device's settings (a cover's direction and motion, see `covers.py`; which reports a
-    delta dp counts, see `deltas.py`) as configuration switches; writing one sends nothing to the device and returns `SettingsChanged` with the device's settings block,
-    for the host to keep with its overrides. Off by default: a host with nowhere to keep them offers none."""
-
-    def __init__(self, device: dict, *, env: HostEnv | None = None, use_quirks: bool = True,
-                 dpmap: dict[str, str] | None = None, allow_hazardous: bool = False,
-                 expose_unused: bool = False, overrides: dict | None = None,
-                 converters: dict | None = None, converter_types: dict | None = None,
-                 device_settings: bool = False):
-        schema = schema_of(device)
-        quirk = quirk_for(schema.product_id) if use_quirks else None
-        if quirk:
-            schema = apply_quirk(schema, quirk)
-            schema.status = apply_status_quirk(quirk, schema.status)
-        types = {**BUILTIN, **(converter_types or {})}
-        block = ov.find(overrides, device, types)
-        self.block = block
-        local_strategy = device.get("local_strategy") or {}
-        extra = {str(k): v for k, v in (dpmap or {}).items()}
-        dpcodes = {**_str_keys(schema.dpmap), **extra, **Adapter.from_local_strategy(local_strategy).codes()}
-        schema, removed = ov.patch_schema(schema, block, dpcodes)
-        self.adapter = Adapter.from_local_strategy(local_strategy, schema.status_range)
-        for dpid, code in {**_str_keys(schema.dpmap), **extra}.items():
-            self.adapter.entries.setdefault(dpid, (code, "default", {}))
-        ov.patch_adapter(self.adapter, block, removed, schema)
-        env = env or default_env()
-        info = device_info(schema, quirk)
-
-        def build(schema: DeviceSchema) -> Assembly:
-            plans: list[EntityPlan] = []
-            if block.get("auto", True):
-                plans = classify(schema, env).entities
-                if block.get("expose_unused", expose_unused):
-                    used = {c for p in plans if p.platform not in UNSUPPORTED for c in p.depends_on}
-                    plans += unused_plans(schema, self.adapter.entries, used)
-            return assemble(schema, plans, info, allow_hazardous=allow_hazardous)
-
-        self.assembly: Assembly = build(schema)
-        self.covers = cv.covers(self.assembly, block, infer_motion=device_settings)
-        choices = {c.part.group: c.position_choice for c in self.covers}
-        if drop := cv.dropped(self.covers):             # `position_from_target`: classified again without them
-            schema = cv.without(schema, drop)
-            self.assembly = build(schema)
-            self.covers = cv.covers(self.assembly, block, infer_motion=device_settings)
-        for c in self.covers:
-            c.position_choice = choices.get(c.part.group, False)
-        cv.apply(self.covers, self.adapter, schema)
-        cv.warn(schema.id, cv.deprecated(block, self.covers))
-        self._factories: list = []
-        self.converters: list[Converter] = self._make_converters(device, block, converters, types)
-        taken = {name for conv in self.converters for name in conv.props()}
-        # a converter of the user's owns the motion: the deprecated `cover_motion`, or one with the property's name
-        motion_taken = taken
-        self.converters += [m for c in self.covers
-                            if c.part.prefix + "cover_state" not in taken and (m := cv.motion(c)) is not None]
-        self._bind_converters()
-        self.delta = dl.delta(self.assembly, block)
-        # property -> (the settings' owner, the setting): a cover's, or the delta dps'
-        self.switches: dict[str, tuple[cv.Cover | dl.Delta, str]] = {}
-        if device_settings:
-            self.switches = {**cv.switches(self.assembly, self.covers, motion_taken=motion_taken),
-                             **dl.switches(self.assembly, self.delta)}
-        self._own_blocks = tuple(((overrides or {}).get(k) or {}) if k else {}
-                                 for k in (device.get("product_id"), device.get("id")))
-        ov.patch_descriptor(self.assembly, block, schema)
-        self.switches = {k: v for k, v in self.switches.items() if k in self.assembly.descriptor["props"]}  # not hidden
-        self.descriptor: dict = self.assembly.descriptor
-        self.unsupported: list[str] = self.assembly.unsupported
-        self.timers: set[str] = set()                # names of the timers the converters have set
-        self._codes: dict[str, Any] = {}
-        self._dps: dict[str, Any] = {}               # the device's dps as last received, before any conversion
-        self._values: dict[str, Any] = {}
-        self._described = False
-        self._linked = False
-        self._synced = False
-        self._seq = 0
-
-    # -- the driver interface -------------------------------------------------
-    def handle(self, now: float, inp: Any) -> list:
-        match inp:
-            case Connected():
-                self._linked = True
-                return self._describe()
-            case Disconnected():
-                return self._disconnect()
-            case Message():
-                return self._message(now, inp)
-            case Command():
-                return self._command(inp)
-            case Timer(name):
-                return self._timer(now, name)
-        return []
-
-    # -- internals ------------------------------------------------------------
-    def _make_converters(self, device: dict, block: dict, registered: dict | None, types: dict) -> list[Converter]:
-        out: list[Converter] = []
-        for key in (device.get("product_id"), device.get("id")):
-            fs = (registered or {}).get(key) if key else None
-            for f in fs if isinstance(fs, (list, tuple)) else [fs] if fs else []:
-                self._factories.append(f)
-                out.append(f(device))
-        for name, cfg in (block.get("converters") or {}).items():
+    def __init__(self, device, *, env=None, use_quirks=True, dpmap=None, allow_hazardous=False,
+                 expose_unused=False, overrides=None, converters=None, converter_types=None, device_settings=False, rules=None):
+        pack = rules if rules is not None else default_rules()
+        self._rules_id = register_rules(pack)
+        overrides = merge_all([pack.get("overrides", {}), overrides or {}])
+        self.converters = []
+        self._factories = []
+        external = []
+        block = merge_all([(overrides or {}).get(k) or {} for k in (device.get('product_id'), device.get('id'))])
+        registrations = []
+        for key in (device.get('product_id'), device.get('id')):
+            fs = (converters or {}).get(key)
+            registrations.extend((f, device, None) for f in fs if f) if isinstance(fs, (list, tuple)) else registrations.extend([(fs, device, None)] if fs else [])
+        for name, cfg in (block.get('converters') or {}).items():
+            if name not in ('cover_motion', 'declarative'):
+                factory = (converter_types or {}).get(name)
+                if factory is None:
+                    raise OverrideError(f'unknown converter {name}')
+                registrations.append((factory, cfg, name))
+        for factory, config, name in registrations:
+            self._factories.append(factory)
             try:
-                self._factories.append(types[name])
-                out.append(types[name](cfg))
-            except ValueError as e:
-                raise ov.OverrideError(str(e)) from e
+                conv = factory(config)
+            except ValueError as error:
+                raise OverrideError(str(error)) from error
+            props = conv.props()
+            if any((d.get('rw') or d.get('type') == 'trigger') for d in props.values()) and type(conv).write is Converter.write:
+                raise OverrideError('writable converter has no write()')
+            self.converters.append(conv)
+            external.append({'props': props, 'name': name})
+        try:
+            result = self._call('create', device=device, options={'env': asdict(env) if env is not None else asdict(HostEnv(allowed_units=pack["host_units"])),
+                          'use_quirks': use_quirks, 'dpmap': {str(k): v for k, v in (dpmap or {}).items()},
+                          'allow_hazardous': allow_hazardous, 'expose_unused': expose_unused, 'overrides': overrides or {},
+                          'device_settings': device_settings, 'external': external})
+        except ValueError as error:
+            if str(error).startswith('override:'):
+                raise OverrideError(str(error)) from error
+            raise
+        for warning in result.get('warnings', []):
+            logging.getLogger(__name__).warning('device %s: %s', device['id'], warning)
+        self._state = result['driver']
+        self.descriptor = self._state['assembly']['descriptor']
+
+    def _call(self, op, **payload):
+        return _call({'op': op, 'rules_id': self._rules_id, **payload})
+
+    def _outputs(self, outputs):
+        out = []
+        for output in outputs:
+            fields = dict(output)
+            kind = fields.pop('type').replace('_', '')
+            if kind == 'descriptor':
+                fields['desc'] = self.descriptor
+            out.append(_TYPES[kind](**fields))
         return out
 
-    def _bind_converters(self) -> None:
-        """Add the converters' properties to the descriptor, a writable one bound to its converter's `write`."""
-        taken: set[str] = set()
-        for conv in self.converters:
-            for name, definition in conv.props().items():
-                if name == "available" or name in taken:
-                    by = "the driver" if name == "available" else "another converter"
-                    raise ov.OverrideError(f"converter property {name!r}: taken by {by}")
-                taken.add(name)
-                self.assembly.descriptor["props"][name] = dict(definition)
-                writes = definition.get("rw") or definition.get("type") == "trigger"
-                if writes and type(conv).write is Converter.write:
-                    raise ov.OverrideError(f"converter property {name!r}: writable, but the converter has no write()")
-                self.assembly.bindings[name] = Binding(
-                    name, EntityPlan("converter", name, {}, {}, ()),
-                    write=(lambda v, codes, c=conv, n=name: _commands(c.write(n, v, codes))) if writes else None)
-
-    @property
-    def linked(self) -> bool:
-        return self._linked
-
-    @property
-    def synced(self) -> bool:
-        """A first state has arrived (and no disconnect since)."""
-        return self._synced
-
-    @property
-    def fingerprint(self) -> tuple:
-        """What makes two drivers of one device behave alike beyond their descriptor: the override block, the code
-        converters, the settings in effect (`Hub.reload` replaces a driver only when this or the descriptor changes)."""
-        return self.block, self._factories, [c.settings for c in self.covers], self.delta and self.delta.settings
-
-    @property
-    def dps(self) -> dict[str, Any]:
-        """The device's dps as last received (before any conversion); empty while not synced."""
-        return dict(self._dps)
-
-    def settings_block(self) -> dict:
-        """The device's settings block, as its switches leave it (see `covers.block`, `deltas.block`)."""
-        return {**cv.block(self.covers, *self._own_blocks), **dl.block(self.delta, *self._own_blocks)}
-
-    def carry(self, old: TuyaDriver) -> None:
-        """Take over the totals `old` (a driver of the same device it replaces) counted for the delta properties both
-        have, so a reload does not start them from zero again. The report numbering carries on too: a report with no
-        Tuya `t` is told from the last one counted by it."""
-        self._seq = max(self._seq, old._seq)
-        for name, b in self.assembly.bindings.items():
-            ob = old.assembly.bindings.get(name)
-            if b.plan.slot_kind == "delta" and b.slot is not None and ob is not None and ob.slot is not None \
-                    and ob.plan.slot_kind == "delta" and ob.plan.depends_on == b.plan.depends_on:
-                b.slot.total, b.slot.last_ts = ob.slot.total, ob.slot.last_ts
-
-    def describe(self, seed: Sequence[Any] = (), now: float = 0) -> list:
-        """The descriptor, then what `seed` makes of the device: inputs the host already has for it (its link's state,
-        a retained `state` snapshot), so a device already up goes out `available: true` with its values rather than
-        `false` first (a host restarting shows no flap). `available: false` unless the seed brought a first state (A-2)."""
-        outs = self._describe()
-        for inp in seed:
-            outs += self.handle(now, inp)
-        if not self._synced:
-            self._set("available", False, outs)
-        return outs
-
-    def _describe(self) -> list:
-        if self._described:
-            return []
-        self._described = True
-        outs: list = [Descriptor(self.descriptor)]
-        # The broker may still hold a previous process's motion. A direct report
-        # requires a live packet, so clear it even before the first snapshot.
-        for conv in self.converters:
-            if isinstance(conv, CoverReport) and conv.prop in self.descriptor["props"]:
-                outs.append(Absent(conv.prop))
-        for prop, (owner, key) in self.switches.items():      # the producer's own: known with no device state
-            self._set(prop, owner.value(key), outs)
-        return outs
-
-    def _disconnect(self) -> list:
-        self._linked = self._synced = False
-        self._codes.clear()
-        self._dps.clear()
-        kept = {p: v for p, v in self._values.items() if p in self.switches}
-        outs: list = [Absent(prop) for prop in self._values if prop != "available" and prop not in kept]
-        outs.append(Value("available", False))
-        self._values = {"available": False, **kept}
-        for conv in self.converters:
-            conv.reset()
-        outs += [CancelTimer(n) for n in sorted(self.timers)]
-        self.timers.clear()
-        return outs
-
-    def _set(self, prop: str, value: Any, outs: list) -> None:
-        if value is None:
-            if prop in self._values:
-                del self._values[prop]
-                outs.append(Absent(prop))
-        elif self._values.get(prop, _MISSING) != value:
-            self._values[prop] = value
-            outs.append(Value(prop, value))
-
-    def _message(self, now: float, msg: Message) -> list:
-        dps, t = _dps_of(msg.json)
-        outs = self._describe()                     # R-2/R-3: a descriptor precedes the first value
-        if not dps:
-            return outs
-        self._dps.update(dps)
-        new = self.adapter.read(dps)
-        pushed = msg.channel == "active"
-        # what adds a delta dp's increment: a push, or with `delta.accept_passive` a live passive report too (any one
-        # that carries the dp, even with the value it had)
-        counted = pushed or (msg.channel == "passive" and self.delta is not None and self.delta.settings["accept_passive"])
-        moved = [c for c in new if self._codes.get(c, _MISSING) != new[c]]
-        if pushed or not self._synced:
-            active, changed = pushed, list(new)     # a push, or the first snapshot: every dp in it
-        elif msg.channel == "passive":
-            # a live passive report (the host drops retained ones) that changes a value is the device's own push; one
-            # that changes nothing is a readback
-            active, changed = bool(moved), moved
-        else:
-            # `state` is the bridge's merged view of what active / passive already carried: only a value it alone
-            # brings (a report that was missed) is news, and it is not a push
-            active, changed = False, moved
-        self._seq += 1
-        ts = t if isinstance(t, int) else self._seq
-        self._codes.update(new)
-        first = not self._synced
-        if first:
-            self._synced = True
-            self._linked = True
-            self._set("available", True, outs)      # A-2: true once the first state has arrived
-        for idx, conv in enumerate(self.converters):
-            self._converted(idx, conv.update(now, self._codes, changed, active), outs)
-        stamps = dict.fromkeys(changed, ts)
-        for name, b in self.assembly.bindings.items():
-            deps = b.plan.depends_on
-            if b.event:
-                if pushed and deps[0] in changed:           # an event fires only from `active` (a passive replay of a
-                                                            # click is the device's cached value, not a new press)
-                    ev = on_update(b.plan, b.slot, changed, stamps, self._codes)
-                    if ev.fire and ev.fire[0] in self.descriptor["props"][name]["options"]:
-                        outs.append(Event(name, ev.fire[0]))
+    def _run(self, inp, now=0):
+        result = self._call('handle', driver=self._state, input=inp, now=now)
+        self._state = result['driver']
+        out = self._outputs(result['outputs'])
+        added = 0
+        for cb in result.get('callbacks', []):
+            conv = self.converters[cb['index']]
+            method = cb['method']
+            if method == 'reset':
+                conv.reset()
                 continue
-            if b.read is None:
+            if method == 'write':
+                commands = conv.write(cb['prop'], cb['value'], cb['codes'])
+                produced = self._outputs(self._call('write_callback', driver=self._state, prop=cb['prop'], commands=commands)['outputs'])
+                at = cb.get('at', len(out)) + added
+                out[at:at] = produced
+                added += len(produced)
                 continue
-            if b.plan.slot_kind == "delta":
-                # an increment counts once: only a report that adds it (a readback or a snapshot carries an old one)
-                added = counted and deps[0] in new and on_update(
-                    b.plan, b.slot, list(new), dict.fromkeys(new, ts), self._codes).write_state
-                if added or first:
-                    self._set(name, b.read(self._codes, b.slot), outs)
-                continue
-            if first or b.plan.update_all or any(c in changed for c in deps):
-                self._set(name, b.read(self._codes, b.slot), outs)
-        return outs
+            value = conv.update(cb['now'], cb['codes'], cb['changed'], cb['active']) if method == 'update' else conv.timer(cb['now'], cb['name'], cb['codes'])
+            converted = self._call('converted', driver=self._state, index=cb['index'], result=asdict(as_result(value)))
+            self._state = converted['driver']
+            produced = self._outputs(converted['outputs'])
+            at = cb.get('at', len(out)) + added
+            out[at:at] = produced
+            added += len(produced)
+        return out
 
-    def _converted(self, idx: int, result: Any, outs: list) -> None:
-        r = as_result(result)
-        for prop, value in r.values.items():
-            b = self.assembly.bindings.get(prop)
-            if b is not None and b.plan.platform == "converter":    # an override may have hidden or redefined it
-                self._set(prop, value, outs)
-        for name, after in r.timers.items():
-            full = _TIMER.format(idx, name)
-            if after is None:
-                if full in self.timers:
-                    self.timers.discard(full)
-                    outs.append(CancelTimer(full))
-            else:
-                self.timers.add(full)
-                outs.append(SetTimer(full, float(after)))
+    def handle(self, now, inp):
+        return self._run(_input(inp), now)
 
-    def _timer(self, now: float, name: str) -> list:
-        outs: list = []
-        head, _, short = name.partition(":")
-        idx = int(head[1:]) if head[:1] == "c" and head[1:].isdigit() else len(self.converters)
-        if idx < len(self.converters):
-            self.timers.discard(name)
-            self._converted(idx, self.converters[idx].timer(now, short, self._codes), outs)
-        return outs
+    def describe(self, seed=(), now=0):
+        return self._run({'type': 'describe', 'seed': [_input(inp) for inp in seed]}, now)
 
-    def _command(self, cmd: Command) -> list:
-        try:
-            value = check_command(self.descriptor, self._values, cmd.prop, cmd.value)
-        except Rejected as e:
-            return [Reject(cmd.prop, e.code, e.reason)]
-        if cmd.prop in self.switches:                 # a setting: nothing goes to the device, the host saves it
-            owner, key = self.switches[cmd.prop]
-            owner.settings[key] = value
-            outs: list = []
-            self._set(cmd.prop, value, outs)
-            return [*outs, SettingsChanged(self.settings_block())]
-        b = self.assembly.bindings.get(cmd.prop)
-        if b is None or b.write is None:
-            return [Reject(cmd.prop, "unsupported", "no write path")]
-        if not self._linked:
-            return [Reject(cmd.prop, "unavailable", "device link is down")]
-        try:
-            commands = b.write(value, self._codes)
-            dps, missing = self.adapter.write(commands)
-        except (ActionDPCodeNotFound, NoWritePath) as e:
-            return [Reject(cmd.prop, "unsupported", str(e))]
-        except (WriteRejected, SchemaError, KeyError, TypeError) as e:
-            return [Reject(cmd.prop, "invalid_value", str(e))]
-        if missing or not dps:
-            return [Reject(cmd.prop, "unsupported", f"no dp for {missing or 'command'}")]
-        return [SendMessage("set", {"dps": dps})]
+    def carry(self, old):
+        self._state = self._call('carry', driver=self._state, old=old._state)['driver']
 
+    def settings_block(self):
+        return self._call('settings', driver=self._state)
 
-def _commands(out: Any) -> list[dict]:
-    """A converter's `write` result as engine commands."""
-    if isinstance(out, dict):
-        return [{"code": k, "value": v} for k, v in out.items()]
-    return list(out or [])
-
-
-def _str_keys(m: dict) -> dict[str, Any]:
-    return {str(k): v for k, v in m.items()}
+    @property
+    def linked(self): return self._state['linked']
+    @property
+    def synced(self): return self._state['synced']
+    @property
+    def timers(self): return set(self._state['timers'])
+    @property
+    def dps(self): return dict(self._state['dps'])
+    @property
+    def block(self): return self._state['block']
+    @property
+    def unsupported(self): return self._state['assembly']['unsupported']
+    @property
+    def _values(self): return self._state['values']
+    @property
+    def fingerprint(self): return self._rules_id, self.block, self._factories, [c['settings'] for c in self._state['covers']], self._state['delta']
+    @property
+    def covers(self):
+        return [_namespace({**c, 'state_source': c['settings']['state_source'] or ('inferred' if c['settings']['infer_motion'] else 'none')}) for c in self._state['covers']]
+    @property
+    def assembly(self):
+        plans = self._state['plans']
+        bindings = {name: SimpleNamespace(plan=SimpleNamespace(**plans[b['plan']]) if b['plan'] < len(plans) else SimpleNamespace(platform='converter')) for name, b in self._state['assembly']['bindings'].items()}
+        return SimpleNamespace(bindings=bindings, descriptor=self.descriptor)

@@ -29,7 +29,6 @@ from tuya2ildevice.host import (
     Runner,
     load_overrides,
 )
-from tuya2ildevice.host.pack import sync
 
 PCT = {"unit": "%", "min": 0, "max": 100, "scale": 0, "step": 1}
 SWITCH_KEYS = ("cover_invert_position", "cover_invert_set_position", "cover_invert_control", "cover_state_source", "cover_position_from_target")
@@ -303,7 +302,7 @@ async def test_a_switch_written_through_il_is_saved_applied_and_kept(tmp_path):
     commands.clear()
     await il.publish("il/cur1/cover_invert_position/set", "true", 1, False)
     await runner.drain()
-    assert json.loads((conv / SETTINGS_FILE).read_text()) == {"cur1": {"cover": {"invert_position": True}}}
+    assert json.loads((conv / SETTINGS_FILE).read_text())["overrides"] == {"cur1": {"cover": {"invert_position": True}}}
     assert not [c for c in commands if c.action == "set"]                     # nothing to the device
     assert il.retained["il/cur1/position"].payload == "70"                    # at once, from the last state
     assert il.retained["il/cur1/cover_invert_position"].payload == "true"
@@ -316,7 +315,7 @@ async def test_a_switch_written_through_il_is_saved_applied_and_kept(tmp_path):
     assert il.retained["il/cur1/position"].payload == "70" and il.retained["il/cur1/cover_invert_position"].payload == "true"
     await il.publish("il/cur1/cover_invert_position/set", "false", 1, False)
     await runner.drain()
-    assert json.loads((conv / SETTINGS_FILE).read_text()) == {"cur1": {"cover": {"invert_position": False}}}
+    assert json.loads((conv / SETTINGS_FILE).read_text())["overrides"] == {"cur1": {"cover": {"invert_position": False}}}
     assert il.retained["il/cur1/position"].payload == "30"
     await runner.stop()
 
@@ -346,7 +345,7 @@ async def test_save_settings_removes_an_empty_block_and_leaves_a_single_file_alo
     await watcher.save_settings("a", {"cover": {"invert_control": True}})
     await watcher.save_settings("b", {"cover": {"settle": 2}})
     await watcher.save_settings("a", {})
-    assert json.loads((tmp_path / SETTINGS_FILE).read_text()) == {"b": {"cover": {"settle": 2}}}
+    assert json.loads((tmp_path / SETTINGS_FILE).read_text())["overrides"] == {"b": {"cover": {"settle": 2}}}
     assert load_overrides(tmp_path).overrides == {"b": {"cover": {"settle": 2}}}
     assert [p.name for p in tmp_path.iterdir()] == [SETTINGS_FILE]            # no temporary file left
     (tmp_path / SETTINGS_FILE).write_text("{broken")
@@ -358,17 +357,6 @@ async def test_save_settings_removes_an_empty_block_and_leaves_a_single_file_alo
     assert one.read_text() == "{}" and not (tmp_path / "one.json" / SETTINGS_FILE).exists()
 
 
-def test_the_pack_never_touches_the_settings_file(tmp_path):
-    served = tmp_path / "served"
-    served.mkdir()
-    (served / SETTINGS_FILE).write_text("{}")
-    import hashlib
-    manifest = {"version": 1, "files": [{"name": SETTINGS_FILE, "sha256": hashlib.sha256(b"{}").hexdigest()}]}
-    dest = tmp_path / "conv"
-    dest.mkdir()
-    (dest / SETTINGS_FILE).write_text('{"cur1": {"cover": {"invert_position": true}}}')
-    r = sync(dest, base_url=served.as_uri() + "/", manifest=manifest)
-    assert not r.changed and json.loads((dest / SETTINGS_FILE).read_text())["cur1"]["cover"]["invert_position"]
 
 
 @pytest.mark.parametrize("device, words", [

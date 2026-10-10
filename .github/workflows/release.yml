@@ -25,24 +25,32 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.x"
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --locked --manifest-path rust/Cargo.toml
       - run: pip install -e ".[test]"
       - run: python -m pytest -q
 
   build:
     needs: test
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-14]
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0   # full history + tags, so hatch-vcs can derive the version
+          fetch-depth: 0
       - uses: actions/setup-python@v7
         with:
           python-version: "3.x"
-      - run: pip install build
-      - run: python -m build
+      - uses: dtolnay/rust-toolchain@stable
+      - run: pip install cibuildwheel build
+      - run: python -m cibuildwheel --output-dir dist
+      - if: runner.os == 'Linux'
+        run: python -m build --sdist
       - uses: actions/upload-artifact@v7
         with:
-          name: dist
+          name: dist-${{ matrix.os }}
           path: dist/
 
   publish:
@@ -56,6 +64,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v8
         with:
-          name: dist
+          pattern: dist-*
+          merge-multiple: true
           path: dist/
       - uses: pypa/gh-action-pypi-publish@release/v1

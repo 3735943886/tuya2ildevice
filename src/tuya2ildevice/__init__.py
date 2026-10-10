@@ -43,9 +43,11 @@ def preload() -> None:
     """Read the bundled data files that are otherwise read on first use (quirks, platform tables); importing the package
     reads the rest. Both block: a host whose event loop must not (Home Assistant) imports and calls this in a worker
     thread before it drives devices."""
+    from .native import preload as native_preload
     from .tuya.quirks import load_quirks
     from .tuya.runtime import preload_tables
 
+    native_preload()
     load_quirks()
     preload_tables()
 

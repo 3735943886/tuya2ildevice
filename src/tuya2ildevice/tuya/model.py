@@ -128,25 +128,12 @@ class ResolvedDp:
 
 
 def resolve(schema: DeviceSchema, ref: DpRef) -> ResolvedDp | None:
-    """TypeInformation.find_dpcode: code-major; per candidate try sources in order;
-    accept iff entry exists AND normalized type in ref.types AND spec parses."""
-    order = (
-        (schema.status_range, schema.function)
-        if ref.source == "status_range_first"
-        else (schema.function, schema.status_range)
-    )
-    for code in ref.candidates:
-        for src in order:
-            entry = src.get(code)
-            if entry is None:
-                continue
-            kind = normalize_type(entry.type)
-            if kind not in ref.types:
-                continue
-            spec = entry.parse()
-            if spec is None:
-                continue
-            # a quirk's `invert_int_max` only cancelled core's cover reversal, which is gone (platforms.cover)
-            sr = schema.status_range.get(code)
-            return ResolvedDp(code, spec, kind, sr.report_type if sr else None)
+    from dataclasses import asdict
+
+    from ..native import call
+    for kind in ref.types:
+        raw = call("resolve", device=asdict(schema), reference=asdict(ref), kind=kind)
+        if raw is not None:
+            return ResolvedDp(raw["code"], DpSpec(raw["code"], raw["kind"], raw["spec"]).parse(),
+                              raw["kind"], raw["report_type"])
     return None

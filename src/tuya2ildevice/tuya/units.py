@@ -1,13 +1,9 @@
-"""UnitPolicy (spec 5.3): sensor.py `_validate_device_class_unit` / number.py equivalent, as a pure function."""
-from __future__ import annotations
-
+"""Unit-policy DTO and thin Rust binding."""
 from dataclasses import dataclass
-from typing import Any
 
-from . import load_json
+from ..native import call
 
-_ALIASES: dict[str, dict[str, str]] = load_json("tables", "_units.json")
-TEMP_CONVERT = {"c": "°C", "f": "°F"}          # `temp_unit_convert` dp value -> unit
+TEMP_CONVERT = {'c': '°C', 'f': '°F'}
 
 
 @dataclass(frozen=True)
@@ -17,26 +13,8 @@ class UnitResult:
     suggested_unit: str | None
 
 
-def resolve_unit(
-    platform: str,
-    device_class: str | None,
-    dp_unit: str | None,
-    fallback_unit: str | None,
-    suggested_unit: str | None,
-    temp_unit_convert: Any,
-    allowed_units: dict[str, dict[str, list]],
-) -> UnitResult:
-    if device_class == "enum":
-        return UnitResult(None, device_class, suggested_unit)
-    allowed = allowed_units.get(platform, {}).get(device_class, ())
-    if device_class is None or dp_unit in allowed:
-        return UnitResult(dp_unit, device_class, suggested_unit)
-    if device_class == "temperature" and not dp_unit and temp_unit_convert in TEMP_CONVERT:
-        return UnitResult(TEMP_CONVERT[temp_unit_convert], device_class, suggested_unit)
-    if dp_unit is not None:
-        table = _ALIASES.get(device_class)
-        if table and (uom := table.get(dp_unit) or table.get(dp_unit.lower())) is not None:
-            return UnitResult(uom, device_class, suggested_unit)
-    if fallback_unit is not None:
-        return UnitResult(fallback_unit, device_class, suggested_unit)
-    return UnitResult(dp_unit, None, None)
+def resolve_unit(platform, device_class, dp_unit, fallback_unit, suggested_unit, temp_unit_convert, allowed_units):
+    result = call('unit_policy', platform=platform, device_class=device_class, dp_unit=dp_unit,
+                  fallback_unit=fallback_unit, suggested_unit=suggested_unit,
+                  temp_unit_convert=temp_unit_convert, allowed_units=allowed_units)
+    return UnitResult(result['native_unit'], result['device_class'], result['suggested_unit'])

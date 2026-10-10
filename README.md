@@ -1,9 +1,9 @@
 # tuya2ildevice
 
-The one place that interprets Tuya. Sans-IO Python: takes a Tuya device as [rustuya](https://github.com/3735943886/rustuya) /
+The one place that interprets Tuya. A Sans-IO Rust engine with a thin Python wrapper: takes a Tuya device as [rustuya](https://github.com/3735943886/rustuya) /
 [rustuya-bridge](https://github.com/3735943886/rustuya-bridge) know it and produces an
 [ildevice](https://github.com/3735943886/ildevice): descriptor, live values and events from dps packets, and dps for
-ildevice commands. It opens no sockets and reads no clock. Other projects
+ildevice commands. The engine opens no sockets and reads no clock. Other projects
 ([rustuya-local](https://github.com/3735943886/rustuya-local), ildevice hosts,
 [rustuya-manager](https://github.com/3735943886/rustuya-manager)) import this instead of carrying their own Tuya knowledge.
 
@@ -20,6 +20,22 @@ d.handle(now, Connected())            # -> [Descriptor]
 d.handle(now, Message("active", {"1": True}))   # -> [Value(...), Event(...)]
 d.handle(now, Command("switch_1", "off"))    # -> [SendMessage("set", {"dps": {"1": False}})]  or  [Reject(...)]
 ```
+
+## Portable rules and Rust engine
+
+The Python `TuyaDriver` delegates classification, descriptor assembly, commands, value conversion,
+quirks, delta accumulation and cover state to Rust through a JSON C ABI. The wheel includes the native
+library; building from source requires Cargo (Rust 1.88 or newer).
+
+[`rules/default.json`](rules/default.json) is the canonical rule pack: platform/category tables, DP candidates,
+units, mappings, property layouts and settings defaults. It is loaded at runtime, so changing these
+rules does not require rebuilding Rust. `TUYA_ENGINE_RULES` adds user JSON files or a directory over the bundled defaults; `TUYA_ENGINE_LIBRARY`
+selects another native library. Packs are cached by content for the process lifetime.
+
+A `converters.declarative` override adds computed values, write commands and state/timer programs
+using JSON expressions. Prefer it for portable device-specific behavior. Existing Python converter
+plugins remain available through an explicit callback boundary; their Python code requires a Python
+host. See [the rule language, ABI and build instructions](docs/rust-engine.md).
 
 ## Packets and commands
 
@@ -55,7 +71,7 @@ terms, before classification, so the fixed device goes through the same tables a
 
 `TuyaDriver(device, overrides=mapping)` / `Hub(devices, overrides=mapping)`; `mapping` is `{product_id or device id: block}`,
 already loaded (`merge_all([...])` merges several, later wins; `tuya2ildevice.host.load_overrides` reads a directory).
-Details and the block format are in [overrides.py](src/tuya2ildevice/overrides.py):
+The block format is described below; Rust validates and applies it:
 
 ```json
 { "<product_id>": {
@@ -226,8 +242,7 @@ and mapped control directly; it was not enrolled in the Python converter because
 continues to send target 100/0 when set_position exists (after position inversion), so its command
 path is **different from that earlier implementation**. Report inversion does not change that path.
 
-The package carries no block for any product or device. A fix for a model goes in a converters file: the user's own,
-or the [override pack](pack/README.md), which hosts copy into that directory.
+Model-specific fixes use the `overrides` section of the same rules JSON, either in the shipped defaults or in a user file.
 
 ## Code converters
 
@@ -258,7 +273,7 @@ or `Schedule` (`Hub`); the host calls back with `Timer` / `hub.on_timer(now, id,
 `tuya2ildevice.host.load_overrides(path)` reads a `custom_converters/` directory (or one `.json` file) and
 `OverrideWatcher(path, runner, base=...)` follows it, reloading the Hub when a file changes:
 
-- `*.json`: override mappings, deep-merged in filename order (`99_local.json` refines `10_base.json`).
+- `*.json`: partial rule objects; Rust loads, merges and validates them (`99_local.json` refines `10_base.json`).
 - `*.py`: define `CONVERTERS = {"name": factory}`; an override block turns one on by name. The code runs in-process.
 - A bad file is reported and left out; the rest still loads. Overrides the Hub refuses leave the ones in effect.
 - `zz_settings.json` (`SETTINGS_FILE`, loaded last) holds the settings written through IL, a block per device:
@@ -266,15 +281,43 @@ or `Schedule` (`Hub`); the host calls back with `Timer` / `hub.on_timer(now, id,
   atomically and reloads at once. Keep your own overrides in other files; with one `.json` file instead of a directory
   nothing is saved.
 
-### The override pack
+### One rule format
 
-Fixes for non-standard devices can reach users before the next release: [pack/](pack/) on `master` holds override files
-and `tuya2ildevice.host.pack.sync(directory)` copies them into a host's `custom_converters/` directory, where the watcher
-loads them like the user's own (rustuya-local does this at start and daily, unless turned off). Every file is checked
-against the manifest's SHA-256, and `sync` only writes or removes the files it put there, as recorded in
-`.tuya2ildevice_pack.json`. A user's file with the same name, or a pack file the user has edited, is left alone. A
-manifest entry can be limited to a range of tuya2ildevice versions (`pack.LEVEL`). `.py` pack files run in the host's
-process, like the user's own files. The pack never writes `zz_settings.json`.
+The wheel ships [`rules/default.json`](rules/default.json). There is no separate downloaded pack or manifest.
+User files contain partial rule objects, for example:
+
+```json
+{
+  "overrides": {
+    "my_product": {
+      "cover": {"invert_position": true}
+    }
+  }
+}
+```
+
+The native loader applies the defaults first, then visible `*.json` files in filename order
+(case-sensitive), then `zz_settings.json` last. Directory loading is non-recursive;
+`schema.json` and files starting with `.` or `_` are excluded. Objects merge recursively;
+arrays and scalar values replace earlier values. `{"$delete": true}` deletes an object member;
+`null` remains a literal value. An invalid final rule set is rejected.
+
+Set `TUYA_ENGINE_RULES=/path/to/user_rules` for a process-wide set; multiple file/directory paths
+can be separated with the OS path separator. Or load an independent set explicitly:
+
+```python
+from tuya2ildevice.native import load_rules
+
+custom = load_rules(["/path/to/user_rules"])
+driver = TuyaDriver(device, rules=custom)
+```
+
+For live reload, `load_overrides(directory)` returns both `.rules` and `.overrides`;
+pass `rules=loaded.rules` and `converter_types=loaded.converter_types` to `Hub`.
+`OverrideWatcher` reloads the complete rules as well as the device overrides. It reports and skips
+invalid files. Existing unwrapped product/device override files remain readable by this host
+compatibility API; new files and saved settings use the `overrides` section. Python plugins remain
+optional host extensions and are not part of the portable JSON format.
 
 ## tuya2ildevice <-> an IL host over MQTT
 
@@ -319,22 +362,21 @@ Register the devices on the bridge yourself (`add`); the hub never touches keys.
 ## Layout
 
 ```
+rules/         canonical language-neutral rule pack and schema
+rust/engine/   rule interpreter, Tuya primitives, explicit driver state and C ABI
 src/tuya2ildevice/
-  driver.py    TuyaDriver: packets/commands <-> outputs          io.py      inputs and outputs as data
-  assemble.py  engine entity plans -> ildevice props/roles       checks.py  il.md section 5 command checks
-  mqtt.py      Hub, IlTopics                                     tuya/      the DP engine (see below)
-tuya/          classify + platforms, adapter (raw dps <-> values), quirks, ops, codecs, units
-tuya/tables/   per-platform description tables, generated from HA core     tuya/quirks/   from tuya-device-handlers
-tuya/data/     HA's allowed units per device class
-scripts/       generators for those data files, and golden/ (builds the golden data; needs HA core + oracle venvs)
-docs/          engine-spec.md (the engine's behaviour), analysis/ (how it was derived from HA core)
-tests/         golden/ = 324 HA core fixtures + core's own snapshots; chain/ = the same through an IL host's planner
+  driver.py    thin TuyaDriver facade and Python plugin dispatch
+  native.py    ctypes transport, library loading and rule-pack cache
+  tuya/        compatibility DTOs and thin bindings to Rust operations
+  mqtt.py      Hub and IL MQTT host protocol
+  host/        transports, rule file watchers and saved settings
+scripts/rust/  export frozen Python-reference vectors and check the native ABI
+tests/reference/  frozen pre-migration Python oracle; never used in production
 ```
 
 The engine reproduces Home Assistant core's `tuya` integration exactly, including its quirks, and the golden tests
-pin it: `tests/golden/golden.json` is core's own entity snapshots for every fixture. To follow a new HA core /
-tuya-device-handlers release, run the generators in `scripts/` against it, then the tests; a difference is either
-a real change to adopt or a regression.
+pin it: `tests/golden/golden.json` is core's own entity snapshots for every fixture. For a new HA core / tuya-device-handlers release, review its changes against the canonical JSON rules
+and golden tests. The frozen Python oracle is a baseline, not the source of future runtime rules.
 
 One deliberate exception: where Tuya's own category list (`tuya/tables/_tuya_categories.json`, generated by
 `scripts/gen_tuya_categories.py` from Tuya's standard instruction set page) disagrees with core, Tuya's list wins.
@@ -350,6 +392,7 @@ expected position and position writes where core mirrored them (`core_reverses` 
 ## Tests
 
 ```
+cargo test --locked --manifest-path rust/Cargo.toml
 pip install -e .[test] && python -m pytest
 ```
 
