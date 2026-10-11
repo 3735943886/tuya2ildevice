@@ -27,7 +27,7 @@ def test_native_default_and_ordered_user_layers(tmp_path):
     from pathlib import Path
     bundled = Path(__file__).resolve().parents[1] / 'rules'
     result = _call({'op': 'load_rules', 'paths': [str(tmp_path), str(bundled)]})
-    assert [p.rsplit('/', 1)[-1] for p in result['sources']] == ['00-default.json', '10_user.json', '20_user.json']
+    assert [Path(p).name for p in result['sources']] == ['00-default.json', '10_user.json', '20_user.json']
     driver = TuyaDriver(DEVICE, rules=result['rules'])
     assert driver.descriptor['label'] == 'later'
     assert driver.block['device']['model'] == 'retained'
