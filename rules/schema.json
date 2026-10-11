@@ -91,7 +91,15 @@
       "type": "object"
     },
     "constants": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "manufacturer": {"type": "string"},
+        "vacuum_return_mode": {"type": "string", "minLength": 1},
+        "alarm_non_triggering_messages": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
     },
     "cover_defaults": {
       "type": "object"

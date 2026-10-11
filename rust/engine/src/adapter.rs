@@ -237,7 +237,9 @@ pub fn strategy_read(name: &str, raw: &V, ci: &V, rules: &V) -> Result<V, String
         "dj_v2_scene_alg" => {
             let mut units = vec![];
             for i in 0..text.len().saturating_sub(2) / 26 {
-                let x = &text[2 + i * 26..2 + (i + 1) * 26];
+                let x = text
+                    .get(2 + i * 26..2 + (i + 1) * 26)
+                    .ok_or("invalid scene")?;
                 units.push(json!({"unit_switch_duration":hx(x,0,2)?,"unit_gradient_duration":hx(x,2,4)?,"unit_change_mode":match hx(x,4,6)? as i64{0=>"static",1=>"jump",2=>"gradient",_=>""},"h":hx(x,6,10)?,"s":hx(x,10,14)?,"v":hx(x,14,18)?,"bright":hx(x,18,22)?,"temperature":hx(x,22,26)?}));
             }
             Ok(dumps(
@@ -493,10 +495,10 @@ pub fn strategy_write(name: &str, v: &V, ci: &V) -> Result<V, String> {
             for t in arr(&o) {
                 b.push(if truth(&t["timer_switch"]) { 1 } else { 0 });
                 b.push(
-                    arr(&t["week_day"])
+                    items(&t["week_day"])
                         .iter()
                         .map(|d| 1u8.checked_shl(n(d) as u32).unwrap_or(0))
-                        .sum(),
+                        .fold(0, |bits, bit| bits | bit),
                 );
                 for k in if name == "cz_timer1_alg" {
                     vec!["start_time", "end_time"]
@@ -507,8 +509,12 @@ pub fn strategy_write(name: &str, v: &V, ci: &V) -> Result<V, String> {
                     if parts.len() != 2 {
                         return Err("invalid time".into());
                     }
-                    let minutes = parts[0].parse::<u16>().map_err(|_| "invalid time")? * 60
-                        + parts[1].parse::<u16>().map_err(|_| "invalid time")?;
+                    let hours = parts[0].parse::<u16>().map_err(|_| "invalid time")?;
+                    let minute = parts[1].parse::<u16>().map_err(|_| "invalid time")?;
+                    let minutes = hours
+                        .checked_mul(60)
+                        .and_then(|v| v.checked_add(minute))
+                        .ok_or("invalid time")?;
                     b.extend(minutes.to_be_bytes());
                 }
             }
@@ -535,7 +541,7 @@ impl Adapter {
             } else {
                 "default"
             };
-            if !arr(&rules["strategies"]).contains(&json!(name)) {
+            if !items(&rules["strategies"]).contains(&json!(name)) {
                 a.unsupported[&id] = json!(name);
                 name = "default";
             }
@@ -569,9 +575,9 @@ impl Adapter {
     }
     pub fn read(&self, dps: &V, rules: &V) -> V {
         let mut out = json!({});
-        for (id, raw) in obj(dps) {
-            if let Some((code, name, ci)) = self.entries.get(&id)
-                && let Ok(mut v) = strategy_read(name, &raw, ci, rules)
+        for (id, raw) in fields(dps) {
+            if let Some((code, name, ci)) = self.entries.get(id)
+                && let Ok(mut v) = strategy_read(name, raw, ci, rules)
             {
                 if v.is_string()
                     && let Some(alias) = self.remaps[code]["alias"].get(s(&v))
@@ -580,7 +586,7 @@ impl Adapter {
                 }
                 v = self.flip(code, &v);
                 if self.enum_ranges.get(code).is_some()
-                    && !arr(&self.enum_ranges[code]).contains(&v)
+                    && !items(&self.enum_ranges[code]).contains(&v)
                 {
                     continue;
                 }
@@ -597,9 +603,7 @@ impl Adapter {
                 return Err(format!("unsupported: no dp for {code}"));
             };
             let mut v = self.flip(code, &c["value"]);
-            if let Some((key, _)) = obj(&self.remaps[code]["alias"])
-                .iter()
-                .find(|(_, std)| **std == v)
+            if let Some((key, _)) = fields(&self.remaps[code]["alias"]).find(|(_, std)| **std == v)
             {
                 v = json!(key);
             }

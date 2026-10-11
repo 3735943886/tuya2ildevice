@@ -26,7 +26,7 @@ pub fn unit(p: &str, d: &V, env: &V, desc: &V, id: &mut V, dc: V, dp: V, suggest
     };
     if dc == "enum" {
         u = V::Null
-    } else if !dc.is_null() && !arr(allowed).contains(&dp) {
+    } else if !dc.is_null() && !items(allowed).contains(&dp) {
         let alias = rules["units"][s(&dc)][s(&dp)].clone();
         let alias = if alias.is_null() {
             rules["units"][s(&dc)][s(&dp).to_lowercase()].clone()
@@ -57,18 +57,18 @@ pub fn unit(p: &str, d: &V, env: &V, desc: &V, id: &mut V, dc: V, dp: V, suggest
 }
 pub fn classify(d: &V, env: &V, rules: &V, only: &V) -> Result<Vec<Plan>, String> {
     let mut out = vec![];
-    for group in arr(&rules["platforms"]) {
+    for group in items(&rules["platforms"]) {
         let p = s(&group["platform"]);
-        if only.is_array() && !arr(only).contains(&json!(p)) {
+        if only.is_array() && !items(only).contains(&json!(p)) {
             continue;
         }
         let descs = &group["categories"][s(&d["category"])];
         for desc in if descs.is_object() {
-            vec![descs.clone()]
+            std::slice::from_ref(descs)
         } else {
-            arr(descs)
+            items(descs)
         } {
-            if let Some(plan) = build(p, d, env, &desc, rules)? {
+            if let Some(plan) = build(p, d, env, desc, rules)? {
                 out.push(plan)
             }
         }
@@ -206,7 +206,7 @@ pub fn build(p: &str, d: &V, env: &V, desc: &V, rules: &V) -> Result<Option<Plan
                         } else {
                             hexbytes(s(first)).map(|b| electricity(&b))
                         };
-                        if e.is_none() || e.unwrap()[s(&row[0])].is_null() {
+                        if e.as_ref().is_none_or(|e| e[s(&row[0])].is_null()) {
                             continue;
                         }
                     }
@@ -358,16 +358,16 @@ pub fn build(p: &str, d: &V, env: &V, desc: &V, rules: &V) -> Result<Option<Plan
                 }
             }
             let mut feats = 0;
-            for (act, f) in [("open", 1), ("close", 2), ("stop", 8)] {
+            for (act, f) in [("open", "OPEN"), ("close", "CLOSE"), ("stop", "STOP")] {
                 if options.contains(&json!(act)) {
-                    feats |= f;
+                    feats |= n(&rules["features"]["cover"][f]) as i64;
                 }
             }
             if roles.contains_key("set_position") {
-                feats |= 4
+                feats |= n(&rules["features"]["cover"]["SET_POSITION"]) as i64
             }
             if roles.contains_key("tilt") {
-                feats |= 128
+                feats |= n(&rules["features"]["cover"]["SET_TILT_POSITION"]) as i64
             }
             id["supported_features"] = json!(feats);
             config = json!({"instructions":table,"instruction_options":options});
@@ -394,7 +394,7 @@ pub fn build(p: &str, d: &V, env: &V, desc: &V, rules: &V) -> Result<Option<Plan
             let mut f = 0;
             if let Some(r) = roles.get("mode") {
                 id["preset_modes"] = json!(r.range());
-                f |= 8
+                f |= n(&rules["features"]["fan"]["PRESET_MODE"]) as i64
             }
             if let Some(r) = roles.get("speed") {
                 id["speed_count"] = json!(if r.kind == "Enum" {
@@ -402,11 +402,16 @@ pub fn build(p: &str, d: &V, env: &V, desc: &V, rules: &V) -> Result<Option<Plan
                 } else {
                     100
                 });
-                f |= 1
+                f |= n(&rules["features"]["fan"]["SET_SPEED"]) as i64
             }
-            for (k, bit) in [("oscillate", 2), ("direction", 4), ("switch", 48)] {
+            for (k, bit) in [
+                ("oscillate", "OSCILLATE"),
+                ("direction", "DIRECTION"),
+                ("switch", "TURN_ON"),
+                ("switch", "TURN_OFF"),
+            ] {
                 if roles.contains_key(k) {
-                    f |= bit
+                    f |= n(&rules["features"]["fan"][bit]) as i64
                 }
             }
             id["supported_features"] = json!(f);
@@ -442,7 +447,11 @@ pub fn build(p: &str, d: &V, env: &V, desc: &V, rules: &V) -> Result<Option<Plan
                 .unwrap_or((0.0, 100.0));
             id["min_humidity"] = number(lo.round_ties_even());
             id["max_humidity"] = number(hi.round_ties_even());
-            id["supported_features"] = json!(if roles.contains_key("mode") { 1 } else { 0 });
+            id["supported_features"] = json!(if roles.contains_key("mode") {
+                n(&rules["features"]["humidifier"]["MODES"]) as i64
+            } else {
+                0
+            });
             if let Some(r) = roles.get("mode") {
                 id["available_modes"] = json!(r.range());
             }
@@ -463,11 +472,15 @@ pub fn build(p: &str, d: &V, env: &V, desc: &V, rules: &V) -> Result<Option<Plan
                 false,
             )?;
             id["supported_features"] = json!(
-                [("home", 1), ("arm", 2), ("sos", 8)]
-                    .iter()
-                    .filter(|(v, _)| range.contains(&json!(v)))
-                    .map(|(_, n)| n)
-                    .sum::<i32>()
+                [
+                    ("home", "ARM_HOME"),
+                    ("arm", "ARM_AWAY"),
+                    ("sos", "TRIGGER")
+                ]
+                .iter()
+                .filter(|(v, _)| range.contains(&json!(v)))
+                .map(|(_, feature)| n(&rules["features"]["alarm_control_panel"][feature]) as i64)
+                .fold(0, |bits, bit| bits | bit)
             );
             deps = vec![
                 "master_mode".into(),
@@ -493,9 +506,10 @@ pub fn build(p: &str, d: &V, env: &V, desc: &V, rules: &V) -> Result<Option<Plan
             }
             let mut f = n(&rules["features"]["vacuum"]["SEND_COMMAND"]) as i64;
             if roles.contains_key("switch_charge")
-                || roles
-                    .get("mode")
-                    .is_some_and(|r| r.range().contains(&json!("chargego")))
+                || roles.get("mode").is_some_and(|r| {
+                    r.range()
+                        .contains(&rules["constants"]["vacuum_return_mode"])
+                })
             {
                 f |= n(&rules["features"]["vacuum"]["RETURN_HOME"]) as i64;
             }
@@ -540,9 +554,9 @@ pub fn build(p: &str, d: &V, env: &V, desc: &V, rules: &V) -> Result<Option<Plan
                     u = roles["unit_convert"].read(&d["status"]);
                 }
                 let text = s(&u).to_lowercase();
-                if arr(&rules["constants"]["c_aliases"]).contains(&json!(text)) {
+                if items(&rules["constants"]["c_aliases"]).contains(&json!(text)) {
                     "°C"
-                } else if arr(&rules["constants"]["f_aliases"]).contains(&json!(text)) {
+                } else if items(&rules["constants"]["f_aliases"]).contains(&json!(text)) {
                     "°F"
                 } else if !truth(&u) {
                     if d["status"]["temp_unit_convert"] == "c" {
@@ -605,7 +619,7 @@ pub fn build(p: &str, d: &V, env: &V, desc: &V, rules: &V) -> Result<Option<Plan
                 id["min_temp"] = number(r.lo() / r.scale());
                 id["max_temp"] = number(r.hi() / r.scale());
                 id["target_temperature_step"] = number(n(&r.spec["step"]) / r.scale());
-                f |= 1;
+                f |= n(&rules["features"]["climate"]["TARGET_TEMPERATURE"]) as i64;
             }
             let mut filt = json!({});
             let mut presets = vec![];
@@ -636,7 +650,7 @@ pub fn build(p: &str, d: &V, env: &V, desc: &V, rules: &V) -> Result<Option<Plan
                 hvac = vec![json!("off"), config["switch_only"].clone()]
             };
             if !presets.is_empty() {
-                f |= 16;
+                f |= n(&rules["features"]["climate"]["PRESET_MODE"]) as i64;
                 id["preset_modes"] = json!(presets);
                 if !hvac.contains(&config["switch_only"]) {
                     hvac.push(config["switch_only"].clone());
@@ -645,19 +659,19 @@ pub fn build(p: &str, d: &V, env: &V, desc: &V, rules: &V) -> Result<Option<Plan
             id["hvac_modes"] = json!(hvac);
             config["hvac_filtered"] = filt;
             if let Some(r) = roles.get("set_hum") {
-                f |= 4;
+                f |= n(&rules["features"]["climate"]["TARGET_HUMIDITY"]) as i64;
                 id["min_humidity"] = number((r.lo() / r.scale()).round_ties_even());
                 id["max_humidity"] = number((r.hi() / r.scale()).round_ties_even());
             }
             if let Some(r) = roles.get("fan") {
-                f |= 8;
+                f |= n(&rules["features"]["climate"]["FAN_MODE"]) as i64;
                 id["fan_modes"] = json!(r.range());
             }
             if ["swing_on_off", "swing_h", "swing_v"]
                 .iter()
                 .any(|k| roles.contains_key(*k))
             {
-                f |= 32;
+                f |= n(&rules["features"]["climate"]["SWING_MODE"]) as i64;
                 let mut modes = vec![json!("off")];
                 for (k, m) in [
                     ("swing_on_off", "on"),
@@ -671,7 +685,8 @@ pub fn build(p: &str, d: &V, env: &V, desc: &V, rules: &V) -> Result<Option<Plan
                 id["swing_modes"] = json!(modes);
             }
             if roles.contains_key("switch") {
-                f |= 384
+                f |= n(&rules["features"]["climate"]["TURN_ON"]) as i64
+                    | n(&rules["features"]["climate"]["TURN_OFF"]) as i64
             }
             id["supported_features"] = json!(f);
             all = true;

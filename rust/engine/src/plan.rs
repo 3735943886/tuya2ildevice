@@ -52,7 +52,7 @@ impl Plan {
                         if raw.is_null() {
                             V::Null
                         } else {
-                            json!(arr(&self.config["on"]).iter().any(|v| eq(v, raw)))
+                            json!(items(&self.config["on"]).iter().any(|v| eq(v, raw)))
                         }
                     }
                     _ => main,
@@ -169,9 +169,14 @@ impl Plan {
                 let v = self.get("master_mode", st);
                 let triggered = st["master_state"] == "alarm"
                     && !(truth(enc)
-                        && decoded
-                            .as_ref()
-                            .is_some_and(|x| !x.is_empty() && x.contains("Sensor Low Battery")));
+                        && decoded.as_ref().is_some_and(|x| {
+                            !x.is_empty()
+                                && items(&rules["constants"]["alarm_non_triggering_messages"])
+                                    .iter()
+                                    .any(|message| {
+                                        message.as_str().is_some_and(|message| x.contains(message))
+                                    })
+                        }));
                 json!({"alarm_state":if triggered{json!("triggered")}else{rules["maps"]["_ALARM_STATE"][s(&v)].clone()},"changed_by":if self.role("alarm_msg").is_some()&&st["master_state"]=="alarm"{json!(decoded)}else{V::Null}})
             }
             "vacuum" => {
@@ -199,7 +204,7 @@ impl Plan {
                 } else {
                     rules["maps"]["_MODE_TO_HVAC"][s(&raw)].clone()
                 };
-                let pr = if arr(&self.identity["preset_modes"]).contains(&raw) {
+                let pr = if items(&self.identity["preset_modes"]).contains(&raw) {
                     raw
                 } else {
                     V::Null
@@ -275,7 +280,7 @@ impl Plan {
             s(&self.config["white_mode"]).into()
         }
     }
-    fn light_hsv(&self, st: &V) -> Option<Vec<f64>> {
+    fn light_hsv(&self, st: &V) -> Option<[f64; 3]> {
         let r = self.role("color_data")?;
         let raw = &st[&r.code];
         let trip = if r.kind == "Json" {
@@ -286,7 +291,7 @@ impl Plan {
             vec![n(&p["h"]), n(&p["s"]), n(&p["v"])]
         } else {
             let t = raw.as_str()?;
-            if t.len() != 12 {
+            if t.len() != 12 || !t.is_ascii() {
                 return None;
             }
             vec![
@@ -295,12 +300,12 @@ impl Plan {
                 (u64::from_str_radix(&t[8..], 16).ok()?) as f64,
             ]
         };
-        Some(
-            trip.iter()
-                .zip(arr(&self.config["hsv"]))
-                .map(|(v, r)| remap(*v, n(&r[0]), n(&r[1]), n(&r[2]), n(&r[3])))
-                .collect(),
-        )
+        trip.iter()
+            .zip(items(&self.config["hsv"]))
+            .map(|(v, r)| remap(*v, n(&r[0]), n(&r[1]), n(&r[2]), n(&r[3])))
+            .collect::<Vec<_>>()
+            .try_into()
+            .ok()
     }
     fn light_read(&self, st: &V) -> V {
         let mode = self.light_mode(st);
@@ -375,7 +380,7 @@ impl Plan {
                         if a != "stop" && self.role("set_position").is_some() {
                             return wp("set_position", &json!(if a == "open" { 100 } else { 0 }));
                         }
-                        if !arr(&self.config["instruction_options"]).contains(&json!(a)) {
+                        if !items(&self.config["instruction_options"]).contains(&json!(a)) {
                             return Ok(vec![]);
                         }
                         if let Some(r) = self.role("instruction") {
@@ -447,7 +452,7 @@ impl Plan {
                     if self.role("switch_charge").is_some() {
                         one("switch_charge", &json!(true))
                     } else {
-                        one("mode", &json!("chargego"))
+                        one("mode", &rules["constants"]["vacuum_return_mode"])
                     }
                 }
                 "start" | "stop" => one("power_go", &json!(action == "start")),
@@ -465,9 +470,8 @@ impl Plan {
                     if self.role("switch").is_some() {
                         out.push(self.cmd("switch", &json!(*hv != "off"))?)
                     }
-                    if let Some((raw, _)) = obj(&self.config["hvac_filtered"])
-                        .iter()
-                        .find(|(_, v)| **v == *hv)
+                    if let Some((raw, _)) =
+                        fields(&self.config["hvac_filtered"]).find(|(_, v)| **v == *hv)
                     {
                         out.push(self.cmd("hvac_mode", &json!(raw))?)
                     }
@@ -533,7 +537,7 @@ impl Plan {
             cmds.push(self.cmd("color_temp", &number(v))?);
         }
         let cur = self.light_read(st);
-        if self.role("color_data").is_some()
+        if let Some(color_role) = self.role("color_data")
             && (args.get("hs_color").is_some()
                 || (args.get("brightness").is_some() && cur["color_mode"] == "hs" && !white))
         {
@@ -550,14 +554,16 @@ impl Plan {
             } else {
                 &cur["hs_color"]
             };
-            let raw: Vec<_> = [n(&c[0]), n(&c[1]), b]
+            let raw: [i64; 3] = [n(&c[0]), n(&c[1]), b]
                 .iter()
-                .zip(arr(&self.config["hsv"]))
+                .zip(items(&self.config["hsv"]))
                 .map(|(x, r)| {
                     remap(*x, n(&r[2]), n(&r[3]), n(&r[0]), n(&r[1])).round_ties_even() as i64
                 })
-                .collect();
-            let v = if self.role("color_data").unwrap().kind == "Json" {
+                .collect::<Vec<_>>()
+                .try_into()
+                .map_err(|_| "invalid HSV ranges")?;
+            let v = if color_role.kind == "Json" {
                 json!(format!(
                     "{{\"h\": {}, \"s\": {}, \"v\": {}}}",
                     raw[0], raw[1], raw[2]

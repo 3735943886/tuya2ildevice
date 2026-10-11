@@ -2,7 +2,7 @@
 //! Programs are data: no eval, filesystem, networking, imports or clock reads.
 use crate::data::*;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value as V, json};
+use serde_json::{Map, Value as V, json};
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Machine {
     pub config: V,
@@ -70,7 +70,7 @@ pub fn expr(e: &V, ctx: &V) -> Result<V, String> {
         "and" => json!(values.iter().all(truth)),
         "or" => json!(values.iter().any(truth)),
         "contains" => json!(if a.is_array() {
-            arr(&a).iter().any(|v| eq(v, &b))
+            items(&a).iter().any(|v| eq(v, &b))
         } else if a.is_object() {
             a.get(s(&b)).is_some()
         } else if a.is_string() && b.is_string() {
@@ -118,8 +118,18 @@ pub fn expr(e: &V, ctx: &V) -> Result<V, String> {
         _ => return Err(format!("unknown expression op {op}")),
     })
 }
-fn run(program: &V, ctx: &mut V, result: &mut V, budget: &mut usize) -> Result<(), String> {
-    for stmt in arr(program) {
+const INSTRUCTION_LIMIT: usize = 10_000;
+#[derive(Default, Serialize)]
+struct Output {
+    values: Map<String, V>,
+    timers: Map<String, V>,
+    commands: Vec<V>,
+}
+fn run(program: &V, ctx: &mut V, result: &mut Output, budget: &mut usize) -> Result<(), String> {
+    if !program.is_null() && !program.is_array() {
+        return Err("rule program must be an array".into());
+    }
+    for stmt in items(program) {
         if *budget == 0 {
             return Err("rule instruction limit exceeded".into());
         }
@@ -140,14 +150,18 @@ fn run(program: &V, ctx: &mut V, result: &mut V, budget: &mut usize) -> Result<(
             let value = expr(&stmt["value"], ctx)?;
             set(ctx, &parts, value)?;
         } else if stmt.get("emit").is_some() {
-            result["values"][s(&stmt["emit"])] = expr(&stmt["value"], ctx)?;
+            result
+                .values
+                .insert(s(&stmt["emit"]).into(), expr(&stmt["value"], ctx)?);
         } else if stmt.get("timer").is_some() {
-            result["timers"][s(&stmt["timer"])] = expr(&stmt["after"], ctx)?;
+            result
+                .timers
+                .insert(s(&stmt["timer"]).into(), expr(&stmt["after"], ctx)?);
         } else if stmt.get("send").is_some() {
             let send = &stmt["send"];
             let command =
                 json!({"code":expr(&send["code"],ctx)?,"value":expr(&send["value"],ctx)?});
-            result["commands"].as_array_mut().unwrap().push(command);
+            result.commands.push(command);
         } else {
             return Err("unknown rule statement".into());
         }
@@ -163,13 +177,47 @@ impl Machine {
         ctx["state"] = self.state.clone();
         ctx["config"] = self.config.clone();
         let program = if method == "write" {
-            self.config["write"][s(&input["prop"])].clone()
+            &self.config["write"][s(&input["prop"])]
         } else {
-            self.config[method].clone()
+            &self.config[method]
         };
-        let mut result = json!({"values":{},"timers":{},"commands":[]});
-        run(&program, &mut ctx, &mut result, &mut 10000)?;
+        let mut result = Output::default();
+        let mut budget = INSTRUCTION_LIMIT;
+        run(program, &mut ctx, &mut result, &mut budget)?;
+        let result = serde_json::to_value(result).map_err(|e| e.to_string())?;
         self.state = ctx["state"].clone();
         Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn failed_program_does_not_commit_state() {
+        let mut machine = Machine {
+            config: json!({"update":[
+                {"set":["state","count"],"value":2},
+                {"emit":"count","value":{"op":"unknown"}}
+            ]}),
+            state: json!({"count":1}),
+        };
+        assert!(machine.invoke("update", &json!({})).is_err());
+        assert_eq!(machine.state, json!({"count":1}));
+    }
+
+    #[test]
+    fn nested_programs_share_instruction_budget() {
+        let statement = json!({"set":["state","count"],"value":2});
+        let mut machine = Machine {
+            config: json!({"update":[{"if":true,"then":vec![statement; INSTRUCTION_LIMIT]}]}),
+            state: json!({"count":1}),
+        };
+        assert_eq!(
+            machine.invoke("update", &json!({})).unwrap_err(),
+            "rule instruction limit exceeded"
+        );
+        assert_eq!(machine.state, json!({"count":1}));
     }
 }

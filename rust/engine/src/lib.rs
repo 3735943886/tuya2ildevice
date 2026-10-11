@@ -94,18 +94,17 @@ pub fn evaluate(request: Request) -> Result<Value, String> {
 }
 
 pub fn evaluate_json(input: &str) -> String {
-    let parsed: Result<Value, _> = serde_json::from_str(input);
-    if let Ok(ref request) = parsed
-        && request.get("op").is_some()
-    {
-        return match api::request(request) {
-            Ok(value) => json!({"ok":true,"value":value}).to_string(),
-            Err(error) => json!({"ok":false,"error":error}).to_string(),
-        };
-    }
-    let result = serde_json::from_str::<Request>(input)
+    let result = serde_json::from_str::<Value>(input)
         .map_err(|e| e.to_string())
-        .and_then(evaluate);
+        .and_then(|request| {
+            if request.get("op").is_some() {
+                api::request(&request)
+            } else {
+                serde_json::from_value::<Request>(request)
+                    .map_err(|e| e.to_string())
+                    .and_then(evaluate)
+            }
+        });
     match result {
         Ok(value) => json!({"ok": true, "value": value}).to_string(),
         Err(error) => json!({"ok": false, "error": error}).to_string(),

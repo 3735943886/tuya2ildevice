@@ -1,8 +1,12 @@
 use crate::{adapter::*, classify, data::*, driver::Driver, driver::check, plan::Plan};
+use serde::de::DeserializeOwned;
 use serde_json::{Value as V, json};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 static PACKS: OnceLock<Mutex<HashMap<String, Arc<V>>>> = OnceLock::new();
+fn decode<T: DeserializeOwned>(input: &V, field: &str) -> Result<T, String> {
+    serde_json::from_value(input[field].clone()).map_err(|e| format!("{field}: {e}"))
+}
 pub fn request(input: &V) -> Result<V, String> {
     if input["op"] == "load_rules" {
         return crate::rules::load(input);
@@ -61,21 +65,18 @@ pub fn request(input: &V) -> Result<V, String> {
             Ok(json!({"driver":d,"warnings":warnings}))
         }
         "handle" => {
-            let mut d: Driver =
-                serde_json::from_value(input["driver"].clone()).map_err(|e| e.to_string())?;
+            let mut d: Driver = decode(input, "driver")?;
             let result = d.handle(n(&input["now"]), &input["input"], rules)?;
             Ok(json!({"driver":d,"outputs":result["outputs"],"callbacks":result["callbacks"]}))
         }
         "converted" => {
-            let mut d: Driver =
-                serde_json::from_value(input["driver"].clone()).map_err(|e| e.to_string())?;
+            let mut d: Driver = decode(input, "driver")?;
             let mut out = vec![];
             d.converted(n(&input["index"]) as usize, &input["result"], &mut out);
             Ok(json!({"driver":d,"outputs":out}))
         }
         "write_callback" => {
-            let d: Driver =
-                serde_json::from_value(input["driver"].clone()).map_err(|e| e.to_string())?;
+            let d: Driver = decode(input, "driver")?;
             let commands = if input["commands"].is_object() {
                 obj(&input["commands"])
                     .iter()
@@ -93,18 +94,17 @@ pub fn request(input: &V) -> Result<V, String> {
             Ok(json!({"outputs":[output]}))
         }
         "carry" => {
-            let mut d: Driver =
-                serde_json::from_value(input["driver"].clone()).map_err(|e| e.to_string())?;
-            let old: Driver =
-                serde_json::from_value(input["old"].clone()).map_err(|e| e.to_string())?;
+            let mut d: Driver = decode(input, "driver")?;
+            let old: Driver = decode(input, "old")?;
             d.seq = d.seq.max(old.seq);
             for (name, b) in d.assembly.bindings.iter_mut() {
                 if let Some(ob) = old.assembly.bindings.get(name) {
                     let a = d.plans.get(b.plan);
                     let o = old.plans.get(ob.plan);
-                    if a.is_some_and(|p| p.slot_kind.as_deref() == Some("delta"))
-                        && o.is_some_and(|p| p.slot_kind.as_deref() == Some("delta"))
-                        && a.unwrap().depends_on == o.unwrap().depends_on
+                    if let (Some(a), Some(o)) = (a, o)
+                        && a.slot_kind.as_deref() == Some("delta")
+                        && o.slot_kind.as_deref() == Some("delta")
+                        && a.depends_on == o.depends_on
                     {
                         b.total = ob.total;
                         b.last_ts = ob.last_ts.clone();
@@ -114,13 +114,11 @@ pub fn request(input: &V) -> Result<V, String> {
             Ok(json!({"driver":d}))
         }
         "settings" => {
-            let d: Driver =
-                serde_json::from_value(input["driver"].clone()).map_err(|e| e.to_string())?;
+            let d: Driver = decode(input, "driver")?;
             Ok(d.settings_block())
         }
         "on_update" => {
-            let p: Plan =
-                serde_json::from_value(input["plan"].clone()).map_err(|e| e.to_string())?;
+            let p: Plan = decode(input, "plan")?;
             let mut slot = input["slot"].clone();
             let changed = &input["changed"];
             let mut write = false;
@@ -180,8 +178,7 @@ pub fn request(input: &V) -> Result<V, String> {
         }
         "unused" => {
             let a = Adapter {
-                entries: serde_json::from_value(input["entries"].clone())
-                    .map_err(|e| e.to_string())?,
+                entries: decode(input, "entries")?,
                 ..Default::default()
             };
             let mut plans = vec![];
@@ -198,8 +195,7 @@ pub fn request(input: &V) -> Result<V, String> {
             Ok(json!(plans))
         }
         "assemble" => {
-            let mut plans: Vec<Plan> =
-                serde_json::from_value(input["plans"].clone()).map_err(|e| e.to_string())?;
+            let mut plans: Vec<Plan> = decode(input, "plans")?;
             Ok(json!(crate::assembly::assemble(
                 &input["device"],
                 &mut plans,
@@ -209,17 +205,13 @@ pub fn request(input: &V) -> Result<V, String> {
             )))
         }
         "binding_read" => {
-            let binding: crate::assembly::Binding =
-                serde_json::from_value(input["binding"].clone()).map_err(|e| e.to_string())?;
-            let plan: Plan =
-                serde_json::from_value(input["plan"].clone()).map_err(|e| e.to_string())?;
+            let binding: crate::assembly::Binding = decode(input, "binding")?;
+            let plan: Plan = decode(input, "plan")?;
             Ok(binding.read(&plan, &input["status"], rules, &input["definition"]))
         }
         "binding_write" => {
-            let binding: crate::assembly::Binding =
-                serde_json::from_value(input["binding"].clone()).map_err(|e| e.to_string())?;
-            let plan: Plan =
-                serde_json::from_value(input["plan"].clone()).map_err(|e| e.to_string())?;
+            let binding: crate::assembly::Binding = decode(input, "binding")?;
+            let plan: Plan = decode(input, "plan")?;
             Ok(json!(binding.write(
                 &plan,
                 &input["value"],
@@ -236,23 +228,13 @@ pub fn request(input: &V) -> Result<V, String> {
             }
             merge(&mut cfg, &input["config"]);
             let prop = input.get("prop").cloned().unwrap_or(json!("cover_state"));
-            let m = crate::driver::Motion {
-                prop: s(&prop).into(),
-                group: input["group"].as_str().map(String::from),
-                command: cfg["command"].as_str().map(String::from),
-                target_code: cfg["set_position"].as_str().map(String::from),
-                position: cfg["position"].as_str().map(String::from),
-                words: cfg["words"].clone(),
-                invert: truth(&cfg["invert"]),
-                settle: n(&cfg["settle"]),
-                mode: input.get("mode").map(s).unwrap_or("inferred").into(),
-                invert_report: truth(&input["invert_report"]),
-                state: None,
-                target: None,
-                by_word: false,
-                last: None,
-                external: false,
-            };
+            let m = crate::driver::Motion::from_config(
+                s(&prop).into(),
+                input["group"].as_str().map(String::from),
+                &cfg,
+                input.get("mode").map(s).unwrap_or("inferred").into(),
+                truth(&input["invert_report"]),
+            );
             let mut def = rules["motion_property"].clone();
             if input["group"].is_string() {
                 def["group"] = input["group"].clone();
@@ -260,8 +242,7 @@ pub fn request(input: &V) -> Result<V, String> {
             Ok(json!({"motion":m,"props":{s(&prop):def}}))
         }
         "motion_update" => {
-            let mut m: crate::driver::Motion =
-                serde_json::from_value(input["motion"].clone()).map_err(|e| e.to_string())?;
+            let mut m: crate::driver::Motion = decode(input, "motion")?;
             let (values, timer) = m.update(
                 &input["codes"],
                 &codes(&input["changed"]),
@@ -273,8 +254,7 @@ pub fn request(input: &V) -> Result<V, String> {
             )
         }
         "motion_reset" => {
-            let mut m: crate::driver::Motion =
-                serde_json::from_value(input["motion"].clone()).map_err(|e| e.to_string())?;
+            let mut m: crate::driver::Motion = decode(input, "motion")?;
             m.reset();
             Ok(json!(m))
         }
@@ -325,7 +305,7 @@ pub fn request(input: &V) -> Result<V, String> {
             Ok(if truth(&meta["manufacturer"]) {
                 json!({"manufacturer":meta["manufacturer"],"model":meta["model"],"model_id":meta["model_id"]})
             } else {
-                json!({"manufacturer":"Tuya","model":input["device"]["product_name"],"model_id":input["device"]["product_id"]})
+                default_device_info(&input["device"], rules)
             })
         }
         "unit_policy" => {
@@ -350,7 +330,7 @@ pub fn request(input: &V) -> Result<V, String> {
                 "json_loads" => Ok(if v.is_string() { parse(v) } else { V::Null }),
                 "b64_decode" => Ok(json!(b64(v))),
                 "electricity_bytes" => Ok(electricity(
-                    &arr(v).iter().map(|b| n(b) as u8).collect::<Vec<_>>(),
+                    &items(v).iter().map(|b| n(b) as u8).collect::<Vec<_>>(),
                 )),
                 "electricity_hex" => Ok(hexbytes(s(v)).map(|b| electricity(&b)).unwrap_or(V::Null)),
                 "hsv_hex_decode" => {
@@ -458,13 +438,11 @@ pub fn request(input: &V) -> Result<V, String> {
             Ok(json!(plans))
         }
         "read" => {
-            let p: Plan =
-                serde_json::from_value(input["plan"].clone()).map_err(|e| e.to_string())?;
+            let p: Plan = decode(input, "plan")?;
             Ok(p.read(&input["status"], n(&input["total"]), rules))
         }
         "write" => {
-            let p: Plan =
-                serde_json::from_value(input["plan"].clone()).map_err(|e| e.to_string())?;
+            let p: Plan = decode(input, "plan")?;
             Ok(json!(p.write(
                 s(&input["action"]),
                 &input["args"],
@@ -487,13 +465,11 @@ pub fn request(input: &V) -> Result<V, String> {
             rules
         ))),
         "adapter_read" => {
-            let a: Adapter =
-                serde_json::from_value(input["adapter"].clone()).map_err(|e| e.to_string())?;
+            let a: Adapter = decode(input, "adapter")?;
             Ok(a.read(&input["dps"], rules))
         }
         "adapter_write" => {
-            let a: Adapter =
-                serde_json::from_value(input["adapter"].clone()).map_err(|e| e.to_string())?;
+            let a: Adapter = decode(input, "adapter")?;
             let mut present = vec![];
             let mut missing = vec![];
             for c in arr(&input["commands"]) {

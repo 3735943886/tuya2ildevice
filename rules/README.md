@@ -34,3 +34,15 @@ Python plugins separately. No remote pack download or manifest is needed.
 
 See [the engine documentation](../docs/rust-engine.md) for declarative JSON
 converters, native loading operations and the C ABI.
+
+Device policy also lives in this format: `features` contains platform feature bits,
+`maps._COVER_ENUM` and `maps._COVER_ENUM_SPECIAL` contain cover command words,
+and `motion_defaults` / `motion_property` are shared by native and wrapper calls.
+`constants.manufacturer` supplies the fallback vendor,
+`constants.vacuum_return_mode` supplies the return-home mode, and
+`constants.alarm_non_triggering_messages` lists decoded alarm message fragments
+that should not trigger the alarm. A later JSON layer can change these fields.
+
+Codec byte layouts, arithmetic, expression opcodes, and the instruction budget
+are engine primitives implemented in Rust. Native allocations use Rust ownership;
+the C ABI transfers only its response string, released by `tuya_engine_free`.

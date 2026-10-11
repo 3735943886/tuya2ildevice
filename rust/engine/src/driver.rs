@@ -53,7 +53,7 @@ impl Cover {
         }
     }
 }
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Motion {
     pub prop: String,
     pub group: Option<String>,
@@ -72,6 +72,27 @@ pub struct Motion {
     pub external: bool,
 }
 impl Motion {
+    pub fn from_config(
+        prop: String,
+        group: Option<String>,
+        config: &V,
+        mode: String,
+        invert_report: bool,
+    ) -> Self {
+        Self {
+            prop,
+            group,
+            mode,
+            invert_report,
+            command: config["command"].as_str().map(String::from),
+            target_code: config["set_position"].as_str().map(String::from),
+            position: config["position"].as_str().map(String::from),
+            words: config["words"].clone(),
+            invert: truth(&config["invert"]),
+            settle: n(&config["settle"]),
+            ..Self::default()
+        }
+    }
     pub fn pos(&self, st: &V) -> Option<f64> {
         let v = st.get(self.position.as_deref()?)?;
         if !v.is_number() {
@@ -177,16 +198,18 @@ impl Motion {
                     self.target = Some(0.0);
                     self.by_word = true;
                 }
-            } else if touched(&self.target_code) && pos.is_some() {
+            } else if touched(&self.target_code)
+                && let Some(position) = pos
+            {
                 let raw = &st[self.target_code.as_deref().unwrap_or("")];
                 if raw.is_number() {
                     let target = if self.invert { 100.0 - n(raw) } else { n(raw) };
                     self.target = Some(target);
                     self.by_word = false;
                     state = Some(
-                        if target == pos.unwrap() {
+                        if target == position {
                             "stopped"
-                        } else if target > pos.unwrap() {
+                        } else if target > position {
                             "opening"
                         } else {
                             "closing"
@@ -201,12 +224,11 @@ impl Motion {
                     .as_deref()
                     .is_some_and(|s| s == "opening" || s == "closing")
             {
-                if self.by_word && last.is_some_and(|l| l != p) {
-                    let heading = if p > last.unwrap() {
-                        "opening"
-                    } else {
-                        "closing"
-                    };
+                if self.by_word
+                    && let Some(last) = last
+                    && last != p
+                {
+                    let heading = if p > last { "opening" } else { "closing" };
                     if self.state.as_deref() != Some(heading) {
                         state = Some(heading.into());
                         self.target = Some(if heading == "opening" { 100.0 } else { 0.0 });
@@ -372,7 +394,7 @@ fn prepare(device: &V, options: &V, rules: &V) -> Result<(V, V, V, V), String> {
     let mut info = if truth(&quirk["meta"]["manufacturer"]) {
         quirk["meta"].clone()
     } else {
-        json!({"manufacturer":"Tuya","model":d["product_name"],"model_id":d["product_id"]})
+        default_device_info(&d, rules)
     };
     if info.is_null() {
         info = json!({});
@@ -429,7 +451,7 @@ fn prepare(device: &V, options: &V, rules: &V) -> Result<(V, V, V, V), String> {
             if normalized(s(&d[table][&code]["type"])) == "Enum" {
                 let mut spec = parse(&d[table][&code]["values"]);
                 spec["range"] = json!(
-                    arr(&spec["range"])
+                    items(&spec["range"])
                         .iter()
                         .map(|v| alias.get(s(v)).cloned().unwrap_or_else(|| v.clone()))
                         .collect::<Vec<_>>()
@@ -499,7 +521,7 @@ pub fn validate(b: &V, rules: &V) -> Result<(), String> {
         }
     }
     if b.get("remove").is_some()
-        && (!b["remove"].is_array() || arr(&b["remove"]).iter().any(|v| !v.is_string()))
+        && (!b["remove"].is_array() || items(&b["remove"]).iter().any(|v| !v.is_string()))
     {
         return Err("override: remove needs list of codes".into());
     }
@@ -698,12 +720,11 @@ impl Driver {
                 if r.kind == "Boolean" {
                     adapter.invert(&r.code, &d);
                 } else {
-                    let swaps = if r.range().contains(&json!("open"))
-                        && r.range().contains(&json!("close"))
+                    let words = cover_words(r, rules);
+                    let swaps = if r.range().contains(&words["open"])
+                        && r.range().contains(&words["close"])
                     {
-                        json!({"open":"close","close":"open"})
-                    } else if r.range().contains(&json!("FZ")) && r.range().contains(&json!("ZZ")) {
-                        json!({"FZ":"ZZ","ZZ":"FZ"})
+                        json!({s(&words["open"]):words["close"],s(&words["close"]):words["open"]})
                     } else {
                         json!({})
                     };
@@ -814,25 +835,15 @@ impl Driver {
                 continue;
             }
             if name == "cover_motion" {
-                let mut config = json!({"command":"control","set_position":"percent_control","position":"percent_state","words":{"open":"open","close":"close","stop":"stop"},"settle":0,"invert":false});
+                let mut config = rules["motion_defaults"].clone();
                 merge(&mut config, &cfg);
-                motions.push(Motion {
-                    prop: "cover_state".into(),
-                    group: None,
-                    command: config["command"].as_str().map(String::from),
-                    target_code: config["set_position"].as_str().map(String::from),
-                    position: config["position"].as_str().map(String::from),
-                    words: config["words"].clone(),
-                    invert: truth(&config["invert"]),
-                    settle: n(&config["settle"]),
-                    mode: "inferred".into(),
-                    invert_report: false,
-                    state: None,
-                    target: None,
-                    by_word: false,
-                    last: None,
-                    external: false,
-                });
+                motions.push(Motion::from_config(
+                    "cover_state".into(),
+                    None,
+                    &config,
+                    "inferred".into(),
+                    false,
+                ));
                 taken.push("cover_state".into());
             } else if !external.iter().any(|e| e["name"] == name) {
                 return Err(format!("override: unknown converter {name}"));
@@ -855,15 +866,11 @@ impl Driver {
             if !enabled {
                 continue;
             }
-            let words = if c.ins.as_ref().is_some_and(|r| r.kind == "Boolean") {
-                json!({"open":true,"close":false,"stop":{"never":true}})
-            } else if c.ins.as_ref().is_some_and(|r| {
-                r.range().contains(&json!("FZ")) && r.range().contains(&json!("ZZ"))
-            }) {
-                json!({"open":"FZ","close":"ZZ","stop":"STOP"})
-            } else {
-                json!({"open":"open","close":"close","stop":"stop"})
-            };
+            let words = c
+                .ins
+                .as_ref()
+                .map(|r| cover_words(r, rules))
+                .unwrap_or_else(|| rules["maps"]["_COVER_ENUM"].clone());
             motions.push(Motion {
                 prop,
                 group: c.group.clone(),
@@ -879,15 +886,11 @@ impl Driver {
                 settle: n(&c.settings["settle"]),
                 mode: source.into(),
                 invert_report: truth(&c.settings["invert_reported_motion"]),
-                state: None,
-                target: None,
-                by_word: false,
-                last: None,
-                external: false,
+                ..Motion::default()
             });
         }
         for motion in &motions {
-            let mut def = json!({"type":"select","role":"cover_state","options":["open","closed","opening","closing","stopped"]});
+            let mut def = rules["motion_property"].clone();
             if let Some(g) = &motion.group {
                 def["group"] = json!(g);
             }
@@ -1114,8 +1117,7 @@ impl Driver {
                 self.synced = false;
                 self.codes = json!({});
                 self.dps = json!({});
-                let old = self.values.clone();
-                self.values = json!({});
+                let old = std::mem::replace(&mut self.values, json!({}));
                 for (prop, v) in obj(&old) {
                     if self.switches.contains_key(&prop) {
                         self.values[&prop] = v;
@@ -1131,12 +1133,11 @@ impl Driver {
                 for m in &mut self.motions {
                     m.reset();
                 }
-                let mut timers = self.timers.clone();
+                let mut timers = std::mem::take(&mut self.timers);
                 timers.sort();
                 for name in timers {
                     out.push(json!({"type":"cancel_timer","name":name}));
                 }
-                self.timers.clear();
                 for idx in 0..self.external.len() {
                     callbacks.push(json!({"index":idx,"method":"reset"}));
                 }
@@ -1214,7 +1215,7 @@ impl Driver {
                             if pushed && p.depends_on.first().is_some_and(|c| changed.contains(c)) {
                                 let ev = p.read(&self.codes, 0.0, rules)["event"].clone();
                                 if truth(&ev)
-                                    && arr(&self.assembly.descriptor["props"][&name]["options"])
+                                    && items(&self.assembly.descriptor["props"][&name]["options"])
                                         .contains(&ev[0])
                                 {
                                     out.push(json!({"type":"event","prop":name,"kind":ev[0]}));
@@ -1312,11 +1313,11 @@ impl Driver {
                             } else if !self.linked {
                                 out.push(reject(prop, "unavailable", "device link is down"));
                             } else if let Some(idx) = b.action.strip_prefix("callback:") {
-                                callbacks.push(json!({"at":out.len(),"index":idx.parse::<usize>().unwrap(),"method":"write","prop":prop,"value":value,"codes":self.codes}));
+                                callbacks.push(json!({"at":out.len(),"index":idx.parse::<usize>().map_err(|_| "invalid callback index")?,"method":"write","prop":prop,"value":value,"codes":self.codes}));
                             } else if let Some(idx) = b.action.strip_prefix("machine:") {
                                 let idx =
                                     idx.parse::<usize>().map_err(|_| "invalid machine index")?;
-                                let result=self.machines[idx].invoke("write",&json!({"prop":prop,"value":value,"codes":self.codes,"now":now}))?;
+                                let result=self.machines.get_mut(idx).ok_or("invalid machine index")?.invoke("write",&json!({"prop":prop,"value":value,"codes":self.codes,"now":now}))?;
                                 match self.adapter.write(&arr(&result["commands"])) {Ok(dps)=>out.push(json!({"type":"send_message","channel":"set","json":{"dps":dps}})),Err(error)=>out.push(reject(prop,"unsupported",&error))}
                             } else if let Some(p) = self.plans.get(b.plan) {
                                 match b.write(p,&value,&self.codes,rules).and_then(|cmds|self.adapter.write(&cmds)){Ok(dps)=>out.push(json!({"type":"send_message","channel":"set","json":{"dps":dps}})),Err(e)=>out.push(reject(prop,if e.starts_with("unsupported:"){"unsupported"}else{"invalid_value"},&e))}
@@ -1348,7 +1349,7 @@ pub fn check(desc: &V, state: &V, prop: &str, value: &V) -> Result<V, (String, S
         let ok = if req.is_string() {
             state[s(req)] == true
         } else {
-            arr(&req["in"])
+            items(&req["in"])
                 .iter()
                 .any(|v| eq(v, &state[s(&req["prop"])]))
         };
@@ -1395,7 +1396,7 @@ pub fn check(desc: &V, state: &V, prop: &str, value: &V) -> Result<V, (String, S
             Ok(value.clone())
         }
         "select" => {
-            if arr(&p["options"]).contains(value) {
+            if items(&p["options"]).contains(value) {
                 Ok(value.clone())
             } else {
                 error("invalid_value", format!("not one of {}", p["options"]))
@@ -1653,7 +1654,7 @@ fn patch_descriptor(
                 return Err("override: trigger/event cannot be made read only".into());
             }
             def.as_object_mut().unwrap().remove("rw");
-            if arr(&rules["rw_roles"]).contains(&def["role"]) {
+            if items(&rules["rw_roles"]).contains(&def["role"]) {
                 def.as_object_mut().unwrap().remove("role");
             }
             if let Some(b) = a.bindings.get_mut(&prop) {

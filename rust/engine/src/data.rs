@@ -28,8 +28,14 @@ pub fn eq(a: &V, b: &V) -> bool {
         a == b
     }
 }
+pub fn items(v: &V) -> &[V] {
+    v.as_array().map(Vec::as_slice).unwrap_or_default()
+}
 pub fn arr(v: &V) -> Vec<V> {
     v.as_array().cloned().unwrap_or_default()
+}
+pub fn fields(v: &V) -> impl Iterator<Item = (&String, &V)> {
+    v.as_object().into_iter().flat_map(|o| o.iter())
 }
 pub fn obj(v: &V) -> Obj {
     v.as_object().cloned().unwrap_or_default()
@@ -38,7 +44,7 @@ pub fn codes(v: &V) -> Vec<String> {
     if v.is_string() {
         vec![s(v).into()]
     } else {
-        arr(v).iter().map(|x| s(x).into()).collect()
+        items(v).iter().map(|x| s(x).into()).collect()
     }
 }
 pub fn number(x: f64) -> V {
@@ -72,10 +78,11 @@ pub fn normalized(t: &str) -> &str {
 pub fn merge(dst: &mut V, src: &V) {
     if let (Some(d), Some(sr)) = (dst.as_object_mut(), src.as_object()) {
         for (k, v) in sr {
-            if d.get(k).is_some_and(V::is_object) && v.is_object() {
-                merge(d.get_mut(k).unwrap(), v)
+            let target = d.entry(k.clone()).or_insert(V::Null);
+            if target.is_object() && v.is_object() {
+                merge(target, v);
             } else {
-                d.insert(k.clone(), v.clone());
+                *target = v.clone();
             }
         }
     }
@@ -111,7 +118,7 @@ impl Role {
                 }
             }
             "Enum" => {
-                if self.range().contains(raw) {
+                if items(&self.spec["range"]).contains(raw) {
                     raw.clone()
                 } else {
                     V::Null
@@ -144,7 +151,7 @@ impl Role {
                 }
             }
             "Enum" => {
-                if v.is_string() && self.range().contains(v) {
+                if v.is_string() && items(&self.spec["range"]).contains(v) {
                     Ok(v.clone())
                 } else {
                     Err("invalid enum value".into())
@@ -285,8 +292,8 @@ pub fn cond(c: &V, status: &V) -> V {
                     && n(&a) >= n(&b)
             )
         }
-        "and" => json!(arr(v).iter().all(|x| truth(&cond(x, status)))),
-        "or" => json!(arr(v).iter().any(|x| truth(&cond(x, status)))),
+        "and" => json!(items(v).iter().all(|x| truth(&cond(x, status)))),
+        "or" => json!(items(v).iter().any(|x| truth(&cond(x, status)))),
         "not" => json!(!truth(&cond(v, status))),
         _ => V::Null,
     }
@@ -326,4 +333,21 @@ pub fn patch_op(device: &mut V, dpmap: &mut V, op: &V) {
         }
         _ => {}
     }
+}
+
+pub fn default_device_info(device: &V, rules: &V) -> V {
+    json!({"manufacturer":rules["constants"]["manufacturer"],"model":device["product_name"],"model_id":device["product_id"]})
+}
+pub fn cover_words(role: &Role, rules: &V) -> V {
+    if role.kind == "Boolean" {
+        return json!({"open":true,"close":false,"stop":{"never":true}});
+    }
+    let range = role.range();
+    for name in ["_COVER_ENUM", "_COVER_ENUM_SPECIAL"] {
+        let words = &rules["maps"][name];
+        if range.contains(&words["open"]) && range.contains(&words["close"]) {
+            return words.clone();
+        }
+    }
+    rules["maps"]["_COVER_ENUM"].clone()
 }

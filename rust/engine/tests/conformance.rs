@@ -124,3 +124,102 @@ fn ffi_ownership_and_invalid_inputs() {
         tuya_engine_free(std::ptr::null_mut());
     }
 }
+
+fn call(request: Value) -> Value {
+    serde_json::from_str(&evaluate_json(&request.to_string())).unwrap()
+}
+
+#[test]
+fn malformed_codec_inputs_return_errors_without_panicking() {
+    let scene = format!("{}{}", "a".repeat(27), "é");
+    let response =
+        call(json!({"op":"strategy_read","name":"dj_v2_scene_alg","value":scene,"config":{}}));
+    assert_eq!(response["ok"], false);
+    assert_eq!(response["error"], "invalid scene");
+    let response = call(
+        json!({"op":"strategy_write","name":"cz_timer1_alg","value":[
+        {"timer_switch":true,"week_day":[1],"start_time":"65535:00","end_time":"00:00"}
+    ],"config":{}}),
+    );
+    assert_eq!(response["ok"], false);
+    assert_eq!(response["error"], "invalid time");
+}
+
+#[test]
+fn cover_features_and_device_identity_follow_rules() {
+    let mut rules: Value =
+        serde_json::from_str(include_str!("../../../rules/00-default.json")).unwrap();
+    rules["features"]["cover"]["OPEN"] = json!(1024);
+    rules["features"]["cover"]["CLOSE"] = json!(2048);
+    rules["constants"]["manufacturer"] = json!("Custom vendor");
+    let device = json!({"id":"test","product_name":"Model","product_id":"test",
+        "function":{"control":{"type":"Boolean","values":{}}}});
+    let response = call(
+        json!({"op":"build","platform":"cover","device":device,"description":{"key":"control"},"env":{},"rules":rules}),
+    );
+    assert_eq!(response["ok"], true, "{response}");
+    let plan = &response["value"];
+    assert_eq!(plan["identity"]["supported_features"], 3072);
+    let assembly = call(
+        json!({"op":"assemble","device":device,"plans":[plan],"info":{},"allow_hazardous":true,"rules":rules}),
+    );
+    assert_eq!(assembly["ok"], true, "{assembly}");
+    assert!(
+        assembly["value"]["descriptor"]["props"]
+            .get("open")
+            .is_some()
+    );
+    let info = call(json!({"op":"device_info","device":device,"rules":rules}));
+    assert_eq!(info["value"]["manufacturer"], "Custom vendor");
+}
+
+#[test]
+fn motion_configuration_is_shared_by_driver_and_api() {
+    let mut rules: Value =
+        serde_json::from_str(include_str!("../../../rules/00-default.json")).unwrap();
+    rules["motion_defaults"]["command"] = json!("custom_command");
+    rules["motion_defaults"]["settle"] = json!(4);
+    rules["motion_property"]["label"] = json!("Custom motion");
+    let direct = call(json!({"op":"motion_create","config":{},"rules":rules}));
+    assert_eq!(direct["ok"], true, "{direct}");
+    let created = call(
+        json!({"op":"create","device":{"id":"test","product_id":"test"},
+        "options":{"overrides":{"test":{"auto":false,"converters":{"cover_motion":{}}}}},"rules":rules}),
+    );
+    assert_eq!(created["ok"], true, "{created}");
+    assert_eq!(
+        created["value"]["driver"]["motions"][0],
+        direct["value"]["motion"]
+    );
+    assert_eq!(
+        created["value"]["driver"]["assembly"]["descriptor"]["props"]["cover_state"],
+        direct["value"]["props"]["cover_state"]
+    );
+}
+
+#[test]
+fn vacuum_return_mode_is_configurable() {
+    let mut rules: Value =
+        serde_json::from_str(include_str!("../../../rules/00-default.json")).unwrap();
+    rules["constants"]["vacuum_return_mode"] = json!("custom_return");
+    let device = json!({"function":{"mode":{"type":"Enum","values":{"range":["custom_return"]}}}});
+    let built = call(
+        json!({"op":"build","platform":"vacuum","device":device,"description":{},"env":{},"rules":rules}),
+    );
+    assert_eq!(built["ok"], true, "{built}");
+    assert_eq!(
+        built["value"]["identity"]["supported_features"]
+            .as_i64()
+            .unwrap()
+            & 16,
+        16
+    );
+    let written = call(
+        json!({"op":"write","plan":built["value"],"action":"return_to_base","args":{},"status":{},"rules":rules}),
+    );
+    assert_eq!(written["ok"], true, "{written}");
+    assert_eq!(
+        written["value"],
+        json!([{"code":"mode","value":"custom_return"}])
+    );
+}

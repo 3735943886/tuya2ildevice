@@ -2,6 +2,7 @@ use crate::{adapter::*, data::*, plan::Plan};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value as V, json};
+use std::borrow::Cow;
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Binding {
     pub plan: usize,
@@ -75,11 +76,14 @@ fn when(w: &str, p: &Plan, hazard: bool, allow: bool, rules: &V) -> bool {
     }
     if let Some(a) = w.strip_prefix("cover:") {
         let bit = match a {
-            "open" => 1,
-            "close" => 2,
-            _ => 8,
+            "open" => "OPEN",
+            "close" => "CLOSE",
+            _ => "STOP",
         };
-        return !hazard && (n(&p.identity["supported_features"]) as i64 & bit != 0);
+        return !hazard
+            && (n(&p.identity["supported_features"]) as i64
+                & n(&rules["features"]["cover"][bit]) as i64
+                != 0);
     }
     if let Some(raw) = w.strip_prefix("alarm:") {
         return (raw != "disarmed" || allow)
@@ -95,7 +99,7 @@ fn when(w: &str, p: &Plan, hazard: bool, allow: bool, rules: &V) -> bool {
         "light_modes" => {
             p.role("color_data").is_some()
                 && (p.role("color_temp").is_some()
-                    || arr(&p.identity["supported_color_modes"]).contains(&json!("white")))
+                    || items(&p.identity["supported_color_modes"]).contains(&json!("white")))
         }
         "climate_mode" => p.role("hvac_mode").is_some() && truth(&p.config["mode_options"]),
         _ => true,
@@ -137,7 +141,7 @@ pub fn assemble(device: &V, plans: &mut [Plan], info: &V, allow: bool, rules: &V
         .contains(&platform.as_str());
         let hazard = platform == "cover"
             && !allow
-            && arr(&rules["constants"]["hazardous_covers"]).contains(&p.identity["device_class"]);
+            && items(&rules["constants"]["hazardous_covers"]).contains(&p.identity["device_class"]);
         let mut extra = json!({});
         if ["config", "diagnostic"].contains(&s(&p.identity["entity_category"])) {
             extra["category"] = p.identity["entity_category"].clone();
@@ -223,7 +227,7 @@ pub fn assemble(device: &V, plans: &mut [Plan], info: &V, allow: bool, rules: &V
                     }
                 }
                 if platform == "button"
-                    && !arr(&rules["constants"]["button_classes"]).contains(&def["class"])
+                    && !items(&rules["constants"]["button_classes"]).contains(&def["class"])
                 {
                     def.as_object_mut().unwrap().remove("class");
                 }
@@ -312,7 +316,7 @@ impl Binding {
                 }
                 "select" => {
                     let v = r.read(st);
-                    if arr(&definition["options"]).contains(&v) {
+                    if items(&definition["options"]).contains(&v) {
                         v
                     } else {
                         V::Null
@@ -324,11 +328,11 @@ impl Binding {
         if self.read.starts_with('@') {
             return p.get(&self.read[1..], st);
         }
-        let mut copied = st.clone();
+        let mut copied = Cow::Borrowed(st);
         if self.transform == "climate_mode"
             && let Some(r) = p.role("switch")
         {
-            copied[&r.code] = json!(true);
+            copied.to_mut()[&r.code] = json!(true);
         }
         let v = p.read(&copied, self.total, rules)[&self.read].clone();
         if v.is_null() {
@@ -365,14 +369,14 @@ impl Binding {
             }
             "climate_on" => json!(v != "off"),
             "climate_mode" => {
-                if arr(&definition["options"]).contains(&v) {
+                if items(&definition["options"]).contains(&v) {
                     v
                 } else {
                     V::Null
                 }
             }
             _ => {
-                if definition["type"] == "select" && !arr(&definition["options"]).contains(&v) {
+                if definition["type"] == "select" && !items(&definition["options"]).contains(&v) {
                     V::Null
                 } else {
                     v
