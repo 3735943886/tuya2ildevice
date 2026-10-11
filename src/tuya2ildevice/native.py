@@ -28,12 +28,17 @@ def library():
     return lib
 
 
-def load_rules(paths=(), *, default_path=None):
-    """Load the bundled default and user files through the native host loader."""
-    bundled = Path(__file__).parent / 'rules/default.json'
-    checkout = Path(__file__).resolve().parents[2] / 'rules/default.json'
-    return _call({'op': 'load_rules', 'default_path': str(default_path or (bundled if bundled.exists() else checkout)),
-                  'paths': [str(p) for p in paths]})['rules']
+def rule_paths(paths=(), *, bundled_path=None):
+    """Resolve locations without choosing or ordering individual JSON files."""
+    bundled = Path(__file__).parent / 'rules'
+    checkout = Path(__file__).resolve().parents[2] / 'rules'
+    location = bundled_path or (bundled if bundled.is_dir() else checkout)
+    return [str(location), *[str(p) for p in paths]]
+
+
+def load_rules(paths=(), *, bundled_path=None):
+    """Pass rule locations to the native filename-ordered loader."""
+    return _call({'op': 'load_rules', 'paths': rule_paths(paths, bundled_path=bundled_path)})['rules']
 
 
 @functools.cache

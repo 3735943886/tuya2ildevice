@@ -27,7 +27,7 @@ The Python `TuyaDriver` delegates classification, descriptor assembly, commands,
 quirks, delta accumulation and cover state to Rust through a JSON C ABI. The wheel includes the native
 library; building from source requires Cargo (Rust 1.88 or newer).
 
-[`rules/default.json`](rules/default.json) is the canonical rule pack: platform/category tables, DP candidates,
+[`rules/00-default.json`](rules/00-default.json) is the canonical rule pack: platform/category tables, DP candidates,
 units, mappings, property layouts and settings defaults. It is loaded at runtime, so changing these
 rules does not require rebuilding Rust. `TUYA_ENGINE_RULES` adds user JSON files or a directory over the bundled defaults; `TUYA_ENGINE_LIBRARY`
 selects another native library. Packs are cached by content for the process lifetime.
@@ -276,14 +276,14 @@ or `Schedule` (`Hub`); the host calls back with `Timer` / `hub.on_timer(now, id,
 - `*.json`: partial rule objects; Rust loads, merges and validates them (`99_local.json` refines `10_base.json`).
 - `*.py`: define `CONVERTERS = {"name": factory}`; an override block turns one on by name. The code runs in-process.
 - A bad file is reported and left out; the rest still loads. Overrides the Hub refuses leave the ones in effect.
-- `zz_settings.json` (`SETTINGS_FILE`, loaded last) holds the settings written through IL, a block per device:
+- `zz_settings.json` (`SETTINGS_FILE`, ordered by filename) holds the settings written through IL, a block per device:
   `await watcher.save_settings(device_id, block)` replaces the device's (an empty block removes it), writes the file
   atomically and reloads at once. Keep your own overrides in other files; with one `.json` file instead of a directory
   nothing is saved.
 
 ### One rule format
 
-The wheel ships [`rules/default.json`](rules/default.json). There is no separate downloaded pack or manifest.
+The wheel ships [`rules/00-default.json`](rules/00-default.json). There is no separate downloaded pack or manifest.
 User files contain partial rule objects, for example:
 
 ```json
@@ -296,8 +296,10 @@ User files contain partial rule objects, for example:
 }
 ```
 
-The native loader applies the defaults first, then visible `*.json` files in filename order
-(case-sensitive), then `zz_settings.json` last. Directory loading is non-recursive;
+The native loader collects visible `*.json` files from the bundled and user locations,
+then applies them in ascending filename byte order (ASCII order for ASCII names).
+`00-default.json` and `zz_settings.json` have no special priority. Equal filenames
+preserve the supplied location order. Directory loading is non-recursive;
 `schema.json` and files starting with `.` or `_` are excluded. Objects merge recursively;
 arrays and scalar values replace earlier values. `{"$delete": true}` deletes an object member;
 `null` remains a literal value. An invalid final rule set is rejected.

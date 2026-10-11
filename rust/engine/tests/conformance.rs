@@ -63,7 +63,8 @@ fn canonical(v: &Value) -> Value {
 
 #[test]
 fn full_driver_reference_traces() {
-    let rules: Value = serde_json::from_str(include_str!("../../../rules/default.json")).unwrap();
+    let rules: Value =
+        serde_json::from_str(include_str!("../../../rules/00-default.json")).unwrap();
     let cases: Vec<Value> = serde_json::from_str(include_str!("driver_vectors.json")).unwrap();
     let install: Value = serde_json::from_str(&evaluate_json(
         &json!({"op":"install_rules","rules_id":"conformance","rules":rules}).to_string(),

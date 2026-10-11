@@ -125,29 +125,19 @@ fn files(path: &Path) -> Result<Vec<PathBuf>, String> {
             paths.push(entry.path());
         }
     }
-    paths.sort_by(|a, b| a.file_name().cmp(&b.file_name()));
-    // Host-saved settings always win, regardless of other filenames.
-    if let Some(i) = paths
-        .iter()
-        .position(|p| p.file_name().is_some_and(|n| n == "zz_settings.json"))
-    {
-        let p = paths.remove(i);
-        paths.push(p);
-    }
     Ok(paths)
 }
 
 pub fn load(input: &Value) -> Result<Value, String> {
-    let base = if input["base"].is_object() {
-        input["base"].clone()
-    } else if let Some(path) = input["default_path"].as_str() {
-        read(Path::new(path))?
-    } else {
-        serde_json::from_str(include_str!("../../../rules/default.json"))
-            .map_err(|e| e.to_string())?
-    };
-    validate(&base)?;
-    let mut result = base.clone();
+    let base = input.get("base").cloned().unwrap_or_else(|| json!({}));
+    if !base.is_object() {
+        return Err("rule base must be a JSON object".into());
+    }
+    let schema: Value = serde_json::from_str(include_str!("../../../rules/schema.json"))
+        .map_err(|e| e.to_string())?;
+    let mut partial_schema = schema.clone();
+    partial_schema.as_object_mut().unwrap().remove("required");
+    let mut result = base;
     let mut sources = vec![];
     let mut warnings = vec![];
     let mut paths = vec![];
@@ -156,24 +146,42 @@ pub fn load(input: &Value) -> Result<Value, String> {
             path.as_str().ok_or("path must be a string")?,
         ))?);
     }
-    paths.sort_by_key(|p| p.file_name().is_some_and(|n| n == "zz_settings.json"));
+    // Stable byte-order sorting: equal filenames preserve the supplied location order.
+    paths.sort_by(|a, b| {
+        a.file_name()
+            .map(|n| n.as_encoded_bytes())
+            .cmp(&b.file_name().map(|n| n.as_encoded_bytes()))
+    });
     for file in paths {
         let loaded = (|| {
             let mut value = read(&file)?;
             if !value.is_object() {
                 return Err("expected a JSON object".to_string());
             }
-            let settings = file.file_name().is_some_and(|n| n == "zz_settings.json");
             let legacy = input["legacy_overrides"] == true
                 && value
                     .as_object()
                     .unwrap()
                     .keys()
-                    .all(|k| base.get(k).is_none());
-            if (settings && value.get("overrides").is_none()) || legacy {
+                    .all(|k| schema["properties"].get(k).is_none());
+            if legacy {
                 value = json!({"overrides":value});
             }
-            compose(&result, &[value])
+            let mut next = result.clone();
+            patch(&mut next, &value);
+            if input["tolerant"] == true {
+                let complete = schema["required"].as_array().is_some_and(|keys| {
+                    keys.iter()
+                        .all(|key| result.get(key.as_str().unwrap()).is_some())
+                });
+                check(
+                    &next,
+                    if complete { &schema } else { &partial_schema },
+                    &schema,
+                    "",
+                )?;
+            }
+            Ok::<Value, String>(next)
         })();
         match loaded {
             Ok(next) => {
@@ -187,6 +195,7 @@ pub fn load(input: &Value) -> Result<Value, String> {
             Err(error) => return Err(format!("{}: {error}", file.display())),
         }
     }
+    check(&result, &schema, &schema, "")?;
     Ok(json!({"rules":result,"sources":sources,"warnings":warnings}))
 }
 

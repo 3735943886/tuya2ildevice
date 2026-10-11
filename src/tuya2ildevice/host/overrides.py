@@ -6,7 +6,7 @@
   `Converter` subclass taking its config works) and an override block turns one on for a product or a device with
   ``{"converters": {"name": {...config...}}}``. The code runs in-process: trust it like any plugin.
 
-`SETTINGS_FILE` (``zz_settings.json``, always loaded last) holds the settings written through IL, a block per
+`SETTINGS_FILE` (``zz_settings.json``, ordered by filename) holds the settings written through IL, a block per
 device (`OverrideWatcher.save_settings`); it can be edited like any other file.
 
 Legacy `manifest.json`, `schema.json` and files starting with `.` or `_` are skipped. Nothing here raises for a bad file: a file that cannot
@@ -26,13 +26,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from ..native import _call, rules
+from ..native import _call, rule_paths
 from ..overrides import OverrideError, merge_all
 from .runner import Runner
 
 _LOGGER = logging.getLogger(__name__)
 _SKIP = {"manifest.json", "schema.json"}
-SETTINGS_FILE = "zz_settings.json"               # always loaded after user files
+SETTINGS_FILE = "zz_settings.json"               # ordered with user files
 
 
 @dataclass
@@ -79,7 +79,10 @@ def load_overrides(path: str | Path) -> OverrideSet:
     """Read a directory (or one `.json` file) of overrides and converters. Never raises for a bad file."""
     out = OverrideSet()
     paths = _files(Path(path))
-    result = _call({'op': 'load_rules', 'base': rules(), 'paths': [str(path)] if Path(path).exists() else [],
+    locations = [p for p in os.environ.get('TUYA_ENGINE_RULES', '').split(os.pathsep) if p]
+    if Path(path).exists():
+        locations.append(str(path))
+    result = _call({'op': 'load_rules', 'paths': rule_paths(locations),
                     'legacy_overrides': True, 'tolerant': True})
     out.rules = result['rules']
     out.overrides = out.rules.get('overrides', {})

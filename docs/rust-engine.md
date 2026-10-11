@@ -7,7 +7,7 @@ The original implementation is frozen under `tests/reference/` for oracle toolin
 
 ## Rules and execution
 
-`rules/default.json` is the canonical version-1 rule pack. It contains category
+`rules/00-default.json` is the canonical version-1 rule pack. It contains category
 classification tables, ordered DP role candidates, schema quirks, units, mappings,
 feature bits, IL property layouts, motion defaults and setting definitions.
 
@@ -160,18 +160,18 @@ Input/output tags use snake_case: `connected`, `disconnected`, `message`,
 require a host that implements that plugin language; they are not portable rules.
 
 `TUYA_ENGINE_RULES` and `TUYA_ENGINE_LIBRARY` select user rule paths and the library path. `TUYA_ENGINE_RULES` supplies additional file/directory paths
-(separated with the OS path separator), over the bundled `default.json`. Environment-selected
+(separated with the OS path separator), over the bundled `00-default.json`. Environment-selected
 rules are cached until restart. Explicit `load_rules(paths)` returns an independent set for
 `TuyaDriver(..., rules=...)`; `OverrideWatcher` reloads complete sets when files change.
 
 `load_rules` is a host-side native operation that reads files. The evaluation operations remain
-sans-I/O. Its request accepts `default_path` (optional; otherwise embedded defaults), `paths`
+sans-I/O. Its request accepts `base` (optional decoded seed), `paths`
 (array), and returns `{rules, sources, warnings}`. `merge_rules` accepts `base` and ordered
 `layers` for hosts that supply already decoded data. Both use the same recursive merge and
 bundled schema validation. Arrays replace; `{"$delete": true}` deletes a member. User directories
-are non-recursive, sorted by filename; hidden files and `schema.json` are excluded and
-`zz_settings.json` is always last. Product/device fixes are under `overrides` in the same format.
-There is no remote pack sync. Default rules are included in the library and wheel.
+are non-recursive; files from all locations are sorted by filename; hidden files and `schema.json` are excluded and
+`zz_settings.json` follows the same filename order. Product/device fixes are under `overrides` in the same format.
+There is no remote pack sync. Default rules are included in the wheel.
 
 ## Build, packaging and validation
 

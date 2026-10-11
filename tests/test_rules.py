@@ -24,8 +24,10 @@ def test_native_default_and_ordered_user_layers(tmp_path):
     (tmp_path / 'schema.json').write_text('broken')
     (tmp_path / 'nested').mkdir()
     (tmp_path / 'nested' / '30.json').write_text('broken')
-    result = _call({'op': 'load_rules', 'paths': [str(tmp_path)]})
-    assert [p.rsplit('/', 1)[-1] for p in result['sources']] == ['10_user.json', '20_user.json']
+    from pathlib import Path
+    bundled = Path(__file__).resolve().parents[1] / 'rules'
+    result = _call({'op': 'load_rules', 'paths': [str(tmp_path), str(bundled)]})
+    assert [p.rsplit('/', 1)[-1] for p in result['sources']] == ['00-default.json', '10_user.json', '20_user.json']
     driver = TuyaDriver(DEVICE, rules=result['rules'])
     assert driver.descriptor['label'] == 'later'
     assert driver.block['device']['model'] == 'retained'
@@ -41,7 +43,7 @@ def test_array_replacement_member_deletion_and_null():
     assert base['maps']['custom']['remove'] == 1
 
 
-def test_saved_settings_win_across_paths_and_do_not_get_written(tmp_path):
+def test_settings_follow_filename_order_without_special_priority(tmp_path):
     first, second = tmp_path / 'a', tmp_path / 'b'
     first.mkdir()
     second.mkdir()
@@ -49,7 +51,7 @@ def test_saved_settings_win_across_paths_and_do_not_get_written(tmp_path):
     write(settings, {'overrides': {'p': {'cover': {'settle': 9}}}})
     before = settings.read_bytes()
     write(second / 'zzz_user.json', {'overrides': {'p': {'cover': {'settle': 2}}}})
-    assert load_rules([first, second])['overrides']['p']['cover']['settle'] == 9
+    assert load_rules([first, second])['overrides']['p']['cover']['settle'] == 2
     assert settings.read_bytes() == before
 
 
@@ -57,7 +59,7 @@ def test_saved_settings_win_across_paths_and_do_not_get_written(tmp_path):
                                  {'platforms': [{'platform': 'switch'}]}, {'version': {'$delete': True}}])
 def test_invalid_rule_sets_are_rejected(tmp_path, value):
     write(tmp_path / '10_bad.json', value)
-    with pytest.raises(ValueError, match='10_bad.json'):
+    with pytest.raises(ValueError):
         load_rules([tmp_path])
 
 
@@ -102,3 +104,35 @@ def test_watcher_reloads_global_rules_and_restores_defaults_after_removal(tmp_pa
     path.unlink()
     assert watcher.check()
     assert runner.hub.drivers['d'].descriptor['props']['switch_1'].get('label') != 'User switch'
+
+
+def test_no_implicit_default_or_default_filename_requirement(tmp_path):
+    from pathlib import Path
+    write(tmp_path / '50_complete.json', rules())
+    result = _call({'op': 'load_rules', 'paths': [str(tmp_path)]})
+    assert result['rules'] == rules()
+    assert [Path(p).name for p in result['sources']] == ['50_complete.json']
+    with pytest.raises(ValueError):
+        _call({'op': 'load_rules', 'paths': []})
+
+
+def test_sort_across_locations_and_validate_only_after_all_layers(tmp_path):
+    first, second = tmp_path / 'a', tmp_path / 'b'
+    first.mkdir()
+    second.mkdir()
+    base = copy.deepcopy(rules())
+    platforms = base.pop('platforms')
+    write(second / '00_base.json', base)
+    write(first / '10_platforms.json', {'platforms': platforms})
+    write(second / '30_label.json', {'overrides': {'p': {'device': {'label': 'last'}}}})
+    write(first / '20_label.json', {'overrides': {'p': {'device': {'label': 'first'}}}})
+    result = _call({'op': 'load_rules', 'paths': [str(first), str(second)]})
+    assert TuyaDriver(DEVICE, rules=result['rules']).descriptor['label'] == 'last'
+
+
+def test_host_uses_the_same_global_order_as_the_native_loader(tmp_path):
+    write(tmp_path / '000_before_base.json', {'maps': {'switch_on': {'probe': True}}})
+    write(tmp_path / '10_after_base.json', {'overrides': {'p': {'device': {'label': 'user'}}}})
+    loaded = load_overrides(tmp_path)
+    assert not loaded.warnings
+    assert loaded.rules == load_rules([tmp_path])
